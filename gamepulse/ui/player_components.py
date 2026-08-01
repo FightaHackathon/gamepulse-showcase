@@ -1,0 +1,214 @@
+"""Focused Streamlit rendering primitives for Player Mode."""
+
+from __future__ import annotations
+
+import html
+from dataclasses import dataclass
+from typing import Literal
+
+from gamepulse.catalog import PreferenceOptions
+from gamepulse.config import Settings
+from gamepulse.player_session import PlayerProfileSession
+from gamepulse.recommendations import PlayerPreferences, Recommendation
+
+
+PersonalizationActionKind = Literal["none", "analyze", "refresh", "clear"]
+
+
+@dataclass(frozen=True)
+class PersonalizationAction:
+    kind: PersonalizationActionKind = "none"
+    profile_input: str = ""
+
+
+def _safe_url(value: str | None) -> str | None:
+    if not value or not value.startswith(("https://", "http://")):
+        return None
+    return html.escape(value, quote=True)
+
+
+def _price_label(price: float | None) -> str:
+    if price is None:
+        return "Price unavailable"
+    return "Free" if price == 0 else f"${price:.2f}"
+
+
+def _platform_labels(item) -> tuple[str, ...]:
+    labels = []
+    for label, field in (("Windows", "windows"), ("macOS", "mac"), ("Linux", "linux")):
+        value = getattr(item, field, None)
+        if value:
+            labels.append(label)
+    return tuple(labels) or ("Platform data unavailable",)
+
+
+def _art_markup(url: str | None, alt: str, class_name: str = "gp-game-art") -> str:
+    safe_url = _safe_url(url)
+    if safe_url:
+        return f'<img class="{class_name}" src="{safe_url}" alt="{html.escape(alt, quote=True)}" />'
+    return '<div class="gp-game-art-placeholder" role="img" aria-label="Artwork unavailable">Artwork unavailable</div>'
+
+
+def render_player_hero(st, game, source_label: str = "Local prepared data") -> None:
+    """Render the selected game's visual anchor and provenance."""
+    title = html.escape(str(game.name))
+    release = html.escape(str(game.release_date)[:4]) if game.release_date else "Release year unavailable"
+    platforms = "".join(
+        f'<span class="gp-player-badge">{html.escape(label)}</span>'
+        for label in _platform_labels(game)
+    )
+    metadata = " · ".join(
+        item
+        for item in (
+            f"Released {release}" if game.release_date else None,
+            _price_label(game.price_usd),
+            f"{game.review_score:.0%} positive reviews" if game.review_score is not None else "Reviews unavailable",
+        )
+        if item
+    )
+    markup = f"""
+<section class="gp-player-shell gp-player-hero" aria-labelledby="gp-player-selected-game">
+  <div>{_art_markup(game.header_image_url, f'{game.name} artwork', 'gp-player-hero-art')}</div>
+  <div class="gp-player-hero-copy">
+    <div class="gp-player-eyebrow">Selected game · {html.escape(source_label)}</div>
+    <h2 id="gp-player-selected-game" class="gp-player-hero-title">{title}</h2>
+    <div class="gp-player-muted">{html.escape(metadata)}</div>
+    <div class="gp-player-badges" aria-label="Supported platforms">{platforms}</div>
+  </div>
+</section>
+"""
+    st.markdown(markup, unsafe_allow_html=True)
+
+
+def render_personalization(st, profile_state: PlayerProfileSession, settings: Settings, options: PreferenceOptions) -> PersonalizationAction:
+    """Render the optional public Steam connector and return a user action."""
+    st.subheader("Personalize your recommendations")
+    if not settings.steam_enabled:
+        st.info("Steam personalization is unavailable; manual mode is ready.")
+    elif profile_state.status in {"private", "rate_limited", "unavailable"}:
+        st.warning(profile_state.message)
+    elif profile_state.status == "connected":
+        count = len(profile_state.owned_app_ids)
+        st.success(f"Connected · {count:,} public library games analyzed for this session.")
+        inferred = profile_state.preferences
+        chips = [*(f"Tag: {item}" for item in inferred.preferred_tags[:4]), *(f"Genre: {item}" for item in inferred.preferred_genres[:3])]
+        if chips:
+            st.caption("Inferred preferences · " + " · ".join(chips))
+
+    with st.form("gp_player_steam_form", clear_on_submit=False):
+        profile = st.text_input(
+            "Public Steam profile URL or SteamID",
+            value=profile_state.profile_input,
+            key="gp_player_steam_profile",
+            help="Only public Game Details are read. No password or cookie is requested.",
+        )
+        st.caption("The profile must expose public Game Details. The analysis stays in this browser session.")
+        submitted = st.form_submit_button(
+            "Analyze public library",
+            type="primary",
+            disabled=not settings.steam_enabled,
+            use_container_width=True,
+        )
+    if submitted:
+        return PersonalizationAction("analyze", profile.strip())
+
+    if profile_state.status == "connected":
+        refresh = st.button("Refresh library", key="gp_player_refresh", use_container_width=True)
+        clear = st.button("Clear Steam connection", key="gp_player_clear", use_container_width=True)
+        if refresh:
+            return PersonalizationAction("refresh", profile.strip())
+        if clear:
+            return PersonalizationAction("clear")
+    return PersonalizationAction()
+
+
+def _reset_filter_state(st) -> None:
+    st.session_state["gp_player_discovery_mode"] = "Best matches"
+    st.session_state["gp_player_os"] = "Any"
+    st.session_state["gp_player_price_ceiling"] = "Any price"
+    st.session_state["gp_player_tags"] = []
+    st.session_state["gp_player_genres"] = []
+
+
+def render_player_filters(st, options: PreferenceOptions, initial: PlayerPreferences | None = None) -> PlayerPreferences:
+    """Render bounded manual controls and return the current preference contract."""
+    initial = initial or PlayerPreferences()
+    st.subheader("Discovery controls")
+    st.button("Reset filters", key="gp_player_reset", on_click=_reset_filter_state)
+    discovery_label = st.radio(
+        "Discovery",
+        ["Best matches", "Hidden gems"],
+        index=0,
+        key="gp_player_discovery_mode",
+        horizontal=True,
+        help="Best matches prioritize fit. Hidden gems down-rank very large audiences.",
+    )
+    operating_system = st.selectbox("Operating system", ["Any", "Windows", "macOS", "Linux"], key="gp_player_os")
+    price_ceiling = st.selectbox(
+        "Price ceiling",
+        ["Any price", "Free", "$10 or less", "$20 or less", "$40 or less", "$60 or less", "$100 or less"],
+        key="gp_player_price_ceiling",
+    )
+    price_map = {"Any price": None, "Free": 0.0, "$10 or less": 10.0, "$20 or less": 20.0, "$40 or less": 40.0, "$60 or less": 60.0, "$100 or less": 100.0}
+    selected_tags = st.multiselect(
+        "Preferred tags",
+        list(options.tags),
+        default=[item for item in initial.preferred_tags if item in options.tags],
+        key="gp_player_tags",
+        placeholder="Choose tags",
+    )
+    selected_genres = st.multiselect(
+        "Preferred genres",
+        list(options.genres),
+        default=[item for item in initial.preferred_genres if item in options.genres],
+        key="gp_player_genres",
+        placeholder="Choose genres",
+    )
+    return PlayerPreferences(
+        preferred_tags=tuple(dict.fromkeys(str(item).casefold() for item in selected_tags)),
+        preferred_genres=tuple(dict.fromkeys(str(item).casefold() for item in selected_genres)),
+        max_price_usd=price_map[price_ceiling],
+        operating_system=None if operating_system == "Any" else operating_system,
+        discovery_mode="hidden_gems" if discovery_label == "Hidden gems" else "best_matches",
+    )
+
+
+def render_recommendation_card(st, recommendation: Recommendation, featured: bool = False) -> None:
+    reasons = " · ".join(html.escape(item) for item in recommendation.reasons) or "Based on the selected game's catalog signals"
+    meta = " · ".join(
+        item
+        for item in (
+            recommendation.release_year,
+            _price_label(recommendation.price_usd),
+            f"{recommendation.review_score:.0%} positive" if recommendation.review_score is not None else "Reviews unavailable",
+        )
+        if item
+    )
+    audience = ""
+    if recommendation.owners_high is not None:
+        audience = f" · Est. audience {recommendation.owners_high:,}+"
+    platforms = " · ".join(_platform_labels(recommendation))
+    link = _safe_url(recommendation.steam_store_url)
+    link_markup = f'<a class="gp-player-card-link" href="{link}" target="_blank" rel="noreferrer">View on Steam</a>' if link else '<span class="gp-player-muted">Steam link unavailable</span>'
+    featured_class = " gp-player-card-featured" if featured else ""
+    markup = f"""
+<article class="gp-player-card{featured_class}" aria-label="Recommendation: {html.escape(recommendation.name, quote=True)}">
+  {_art_markup(recommendation.header_image_url, f'{recommendation.name} artwork')}
+  <div class="gp-player-card-copy">
+    <p class="gp-player-card-title">{html.escape(recommendation.name)}</p>
+    <p><span class="gp-player-match">Match {recommendation.match_score}/100</span><span class="gp-player-match-band">{html.escape(recommendation.score_band)}</span></p>
+    <p class="gp-player-card-meta">{html.escape(meta)}{html.escape(audience)} · {html.escape(platforms)}</p>
+    <p class="gp-player-reasons">{reasons}</p>
+    <p>{link_markup}</p>
+  </div>
+</article>
+"""
+    st.markdown(markup, unsafe_allow_html=True)
+
+
+def render_recommendation_empty_state(st, preferences: PlayerPreferences) -> None:
+    st.info("No games match all active filters.")
+    if preferences.discovery_mode == "hidden_gems":
+        st.caption("Try Best matches or broaden the price, platform, or preference filters.")
+    else:
+        st.caption("Try broadening the price, platform, or preference filters.")

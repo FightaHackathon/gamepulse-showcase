@@ -1,0 +1,58 @@
+# GamePulse prototype setup
+
+## Start from the prepared datasets
+
+The transformed CSV files are under `data/processed/2026-08-01`. Raw archives remain under `data/raw/2026-07-30`.
+
+Build or rebuild the disposable local database:
+
+```powershell
+python scripts\build_prototype_database.py --processed-dir data\processed\2026-08-01 --database data\prototype\gamepulse_prototype.sqlite3
+```
+
+If the `python` command is not the bundled runtime, use:
+
+```powershell
+C:\Users\user\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe scripts\build_prototype_database.py --processed-dir data\processed\2026-08-01 --database data\prototype\gamepulse_prototype.sqlite3
+```
+
+Install dependencies and start the local app:
+
+```powershell
+python -m pip install -r requirements.txt
+streamlit run app.py
+```
+
+The app is local-only and is available while the prototype computer is running.
+
+## Optional credentials
+
+Copy `.env.example` to `.env` and fill only the credentials you have. The prototype works in Demo mode without them.
+
+The app loads `.env` from the project root automatically; never paste secrets
+into source files or commit the real `.env`.
+
+- Twitch credentials enable the live Helix provider; keep the secret private.
+- A project-owned Steam Web API key enables public-profile personalization. Keep Game Details public; never provide a Steam password or cookie.
+- Mistral is not wired into the current prototype; local review analysis remains available without it.
+
+## Data labels
+
+- `Local prepared data`: transformed Steam snapshot.
+- `Demo`: local Twitch fixture, not a current Twitch observation.
+- `Live`: a successful provider response with its observation time.
+- `Cached`: a permitted recent local snapshot.
+- Ownership and revenue ranges are estimates; they are not verified Steam sales.
+
+## Prototype acceptance
+
+The complete Player, Streamer, and Developer service story is covered by the
+vertical-slice acceptance test. From the project root, run:
+
+```powershell
+python -m unittest tests\test_vertical_slice.py -v
+python -m unittest discover -s tests -q
+python scripts\prepare_datasets.py --verify --output-root data\processed\2026-08-01
+```
+
+The local demo remains usable without Steam, Twitch, or Mistral credentials.
