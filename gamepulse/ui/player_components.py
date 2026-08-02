@@ -85,6 +85,7 @@ def render_personalization(st, profile_state: PlayerProfileSession, settings: Se
     st.subheader("Personalize your recommendations")
     if not settings.steam_enabled:
         st.info("Steam personalization is unavailable; manual mode is ready.")
+        st.caption("To enable public Steam profiles, add STEAM_WEB_API_KEY in Streamlit Cloud app settings under Secrets.")
     elif profile_state.status in {"private", "rate_limited", "unavailable"}:
         st.warning(profile_state.message)
     elif profile_state.status == "connected":

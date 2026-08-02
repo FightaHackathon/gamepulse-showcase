@@ -36,6 +36,20 @@ into source files or commit the real `.env`.
 - A project-owned Steam Web API key enables public-profile personalization. Keep Game Details public; never provide a Steam password or cookie.
 - Mistral is not wired into the current prototype; local review analysis remains available without it.
 
+### Streamlit Community Cloud secrets
+
+For the deployed app, open **Manage app → Settings → Secrets** and add the
+following TOML entry (replace the placeholder locally; do not commit it):
+
+```toml
+STEAM_WEB_API_KEY = "your-steam-web-api-key"
+```
+
+The app reads Streamlit Cloud secrets as well as local `.env` values. After
+saving the secret, restart the app and Player Mode will enable **Analyze public
+library**. The profile must expose public Game Details; no Steam password or
+cookie is requested.
+
 ## Data labels
 
 - `Local prepared data`: transformed Steam snapshot.

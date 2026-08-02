@@ -10,7 +10,23 @@ from dotenv import load_dotenv
 
 
 def _optional(name: str) -> str | None:
+    """Read an optional credential from local env or Streamlit Cloud secrets.
+
+    Streamlit Community Cloud exposes configured values through ``st.secrets``
+    rather than process environment variables.  Keep environment variables as
+    the first choice so local ``.env`` development and existing deployments
+    retain their current behavior.
+    """
     value = os.getenv(name, "").strip()
+    if not value:
+        try:
+            import streamlit as st
+
+            value = str(st.secrets.get(name, "")).strip()
+        except Exception:
+            # Streamlit is optional for data-preparation scripts and may not
+            # have a secrets file outside an app runtime.
+            value = ""
     return value or None
 
 

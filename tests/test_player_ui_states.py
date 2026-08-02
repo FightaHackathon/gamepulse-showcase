@@ -67,6 +67,7 @@ class PlayerModeStateTests(unittest.TestCase):
         render_personalization(fake, empty_profile_session(), self._settings(False), PreferenceOptions(("RPG",), ("Action",)))
 
         self.assertIn("Steam personalization is unavailable; manual mode is ready.", fake.infos)
+        self.assertIn("STEAM_WEB_API_KEY", " ".join(fake.captions))
 
     def test_private_and_rate_limited_copy_is_safe(self):
         for status, message in (("private", "Game Details are private."), ("rate_limited", "Steam is temporarily rate limited.")):
