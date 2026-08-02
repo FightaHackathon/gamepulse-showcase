@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import Counter
 from datetime import datetime, timezone
 import json
 import math
@@ -15,8 +14,10 @@ import streamlit as st
 
 from gamepulse.catalog import Catalog
 from gamepulse.config import Settings
+from gamepulse.creator_aggregation import aggregate_creator_categories, deduplicate_observations
 from gamepulse.database import connect_read_only
 from gamepulse.forecasting import daily_counts_for_game, forecast_review_activity
+from gamepulse.growth_windows import calculate_window_growth
 from gamepulse.market_analysis import (
     MarketSnapshot,
     analyze_developer_opportunity,
@@ -25,7 +26,14 @@ from gamepulse.market_analysis import (
 )
 from gamepulse.providers.twitch import Snapshot, TwitchProvider
 from gamepulse.review_analysis import analyze_reviews
-from gamepulse.streamer_fit import PromotionCampaignProfile, StreamerProfile, rank_streamers
+from gamepulse.streamer_fit import (
+    CREATOR_TIER_ORDER,
+    PromotionCampaignProfile,
+    StreamerProfile,
+    classify_creator_tier,
+    normalize_creator_tier,
+    rank_streamers,
+)
 from gamepulse.streamer_opportunity import find_matching_opportunity
 from gamepulse.ui.developer_components import (
     creator_fits_csv,
@@ -42,7 +50,7 @@ from gamepulse.ui.shared import DemoState
 
 OBJECTIVES = ("Awareness", "Wishlist growth", "Demo discovery", "Launch promotion", "Community building")
 BUDGET_POSITIONS = ("Micro", "Small", "Medium", "Flexible")
-STREAMER_TIERS = ("emerging", "mid-size", "large")
+STREAMER_TIERS = CREATOR_TIER_ORDER
 
 
 def _owner_label(snapshot: MarketSnapshot) -> str:
@@ -127,11 +135,13 @@ def _cached_streamer_history(database_path: str) -> tuple[dict[str, object], ...
         ).fetchone()
         if not exists:
             return ()
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(twitch_streamer_snapshots)")}
+        partial_column = "partial_coverage" if "partial_coverage" in columns else "0 AS partial_coverage"
         rows = connection.execute(
-            """SELECT observed_at, stream_id, streamer_id, streamer_name, streamer_login,
+            f"""SELECT observed_at, stream_id, streamer_id, streamer_name, streamer_login,
                       game_id, game_name, viewer_count, language, tags_json,
                       channel_size_tier, broadcaster_type, profile_image_url,
-                      source_mode, source_name
+                      source_mode, source_name, {partial_column}
                FROM twitch_streamer_snapshots
                ORDER BY observed_at, streamer_id"""
         )
@@ -187,7 +197,9 @@ def _observation_record(item: Any) -> dict[str, object]:
         "channel_size_tier": str(_field(item, "channel_size_tier", "unknown") or "unknown"),
         "profile_image_url": _field(item, "profile_image_url") or _field(item, "profile_image"),
         "source_mode": _field(item, "source_mode", "Unknown"),
+        "source_name": _field(item, "source_name", ""),
         "partial_coverage": bool(_field(item, "partial_coverage", False)),
+        "collection_id": _field(item, "collection_id"),
     }
 
 
@@ -203,25 +215,36 @@ def _history_record(row: Mapping[str, object]) -> dict[str, object]:
     record["viewer_count"] = int(row.get("viewer_count") or 0)
     record["game_name"] = str(row.get("game_name") or "")
     record["language"] = str(row.get("language") or "")
+    record["source_mode"] = row.get("source_mode") or "Unknown"
+    record["source_name"] = str(row.get("source_name") or "")
+    record["partial_coverage"] = bool(row.get("partial_coverage"))
+    record["collection_id"] = row.get("collection_id")
     return record
 
 
-def _dedupe_records(records: list[dict[str, object]]) -> list[dict[str, object]]:
-    result: list[dict[str, object]] = []
-    seen: set[tuple[object, ...]] = set()
-    for record in records:
-        key = (
-            record.get("observed_at"),
-            record.get("stream_id"),
-            record.get("streamer_id"),
-            record.get("game_id"),
-            record.get("viewer_count"),
-        )
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append(record)
-    return result
+def _canonical_source_mode(value: object) -> str:
+    raw = str(value or "").strip().casefold()
+    if "mixed" in raw:
+        return "Mixed"
+    if "fallback" in raw:
+        return "Fallback"
+    if "live" in raw:
+        return "Live"
+    if "demo" in raw:
+        return "Demo"
+    if "manual" in raw:
+        return "Manual"
+    if "cached" in raw or "snapshot" in raw:
+        return "Cached/Snapshot"
+    return "Unknown"
+
+
+def _collection_identifier(record: Mapping[str, object]) -> str:
+    existing = record.get("collection_id")
+    if existing:
+        return str(existing)
+    values = tuple(str(record.get(key) or "") for key in ("source_mode", "source_name", "observed_at"))
+    return "|".join(values) if any(values) else ""
 
 
 def _profile_from_records(
@@ -229,11 +252,32 @@ def _profile_from_records(
     records: list[dict[str, object]],
     target_name: str,
     similar_names: tuple[str, ...],
-    source_mode: str,
-    observed_at: str,
+    _legacy_source_mode: str | None = None,
+    _legacy_observed_at: str | None = None,
 ) -> StreamerProfile:
-    ordered = sorted(records, key=lambda record: _parse_time(record.get("observed_at")) or datetime.min.replace(tzinfo=timezone.utc))
-    game_names = tuple(dict.fromkeys(str(row.get("game_name") or "") for row in ordered if str(row.get("game_name") or "").strip()))
+    deduplicated = deduplicate_observations(records)
+    ordered = sorted(deduplicated, key=lambda record: _parse_time(record.get("observed_at")) or datetime.min.replace(tzinfo=timezone.utc))
+    dated_records = [record for record in ordered if _parse_time(record.get("observed_at")) is not None]
+    latest = dated_records[-1] if dated_records else (ordered[-1] if ordered else {})
+    observed_at = str(latest.get("observed_at")) if _parse_time(latest.get("observed_at")) is not None else None
+    source_modes = tuple(dict.fromkeys(_canonical_source_mode(row.get("source_mode")) for row in ordered))
+    source_mode = source_modes[0] if len(source_modes) == 1 else "Mixed" if source_modes else "Unknown"
+    source_names = tuple(dict.fromkeys(str(row.get("source_name") or "") for row in ordered if str(row.get("source_name") or "").strip()))
+    source_name = "Mixed sources" if source_mode == "Mixed" else latest.get("source_name") or (source_names[0] if source_names else "")
+    collection_ids = tuple(dict.fromkeys(_collection_identifier(row) for row in ordered if _collection_identifier(row)))
+    partial_coverage = any(bool(row.get("partial_coverage")) for row in ordered)
+    provenance_parts: list[str] = []
+    if source_mode == "Mixed":
+        labels = ", ".join(source_names[:2]) or ", ".join(source_modes)
+        suffix = " and more" if len(source_names) > 2 else ""
+        provenance_parts.append(f"Mixed provenance ({', '.join(source_modes)}) across {labels}{suffix}.")
+    if len(collection_ids) > 1:
+        provenance_parts.append(f"{len(collection_ids)} collections contributed.")
+    if partial_coverage:
+        provenance_parts.append("Partial coverage exists in contributing data.")
+    provenance_note = " ".join(provenance_parts)
+    category_aggregation = aggregate_creator_categories(ordered)
+    game_names = category_aggregation.display_categories
     tags = tuple(dict.fromkeys(tag for row in ordered for tag in _tags(row.get("tags"))))
     categories = set(game_names) | set(tags)
     similar_set = {_normalized(name) for name in similar_names}
@@ -245,26 +289,26 @@ def _profile_from_records(
     volatility = None
     if len(viewers) >= 2 and mean(viewers) > 0:
         volatility = min(1.0, pstdev(viewers) / mean(viewers))
-    category_counts = Counter(name for name in game_names if name)
-    primary_category = category_counts.most_common(1)[0][0] if category_counts else None
-    primary_share = category_counts[primary_category] / len(game_names) if primary_category and game_names else None
-    growth = None
-    if len(ordered) >= 2:
-        latest_time = _parse_time(ordered[-1].get("observed_at"))
-        prior_time = _parse_time(ordered[0].get("observed_at"))
-        prior_viewers = float(ordered[0].get("viewer_count") or 0)
-        latest_viewers = float(ordered[-1].get("viewer_count") or 0)
-        if latest_time and prior_time and (latest_time - prior_time).total_seconds() >= 86400 and prior_viewers > 0:
-            growth = (latest_viewers - prior_viewers) / prior_viewers
-    latest = ordered[-1] if ordered else {}
+    primary_category = category_aggregation.primary_category
+    primary_share = category_aggregation.primary_category_share
+    growth_comparison = calculate_window_growth(deduplicated, "seven-day")
     languages = tuple(dict.fromkeys(str(row.get("language") or "") for row in ordered if str(row.get("language") or "").strip()))
     login = latest.get("streamer_login")
     channel_url = f"https://twitch.tv/{login}" if login else None
+    latest_tier = normalize_creator_tier(latest.get("channel_size_tier"))
+    trusted_tier = (
+        latest_tier
+        if latest_tier != "unknown" and _canonical_source_mode(latest.get("source_mode")) in {"Demo", "Manual"}
+        else None
+    )
+    latest_viewers = latest.get("viewer_count")
+    current_viewers = average if latest_viewers in (None, "") else latest_viewers
+    tier = trusted_tier or classify_creator_tier(current_viewers, len(ordered), viewers)
     return StreamerProfile(
         streamer_id=str(streamer_id),
         categories=categories,
         language=languages[0] if languages else "",
-        tier=str(latest.get("channel_size_tier") or "unknown"),
+        tier=tier,
         average_viewers=average,
         name=str(latest.get("streamer_name") or streamer_id),
         category_history=game_names,
@@ -275,11 +319,17 @@ def _profile_from_records(
         primary_category_share=primary_share,
         viewer_volatility=volatility,
         observation_count=len(ordered),
-        seven_day_growth=growth,
+        seven_day_growth=growth_comparison.percentage_change,
+        seven_day_growth_interval_hours=growth_comparison.actual_interval_hours,
+        seven_day_growth_baseline_at=growth_comparison.baseline_timestamp,
+        seven_day_growth_latest_at=growth_comparison.latest_timestamp,
         languages=languages,
         source_mode=source_mode,
         observed_at=observed_at,
-        partial_coverage=any(bool(row.get("partial_coverage")) for row in ordered),
+        partial_coverage=partial_coverage,
+        source_name=str(source_name or ""),
+        provenance_note=provenance_note,
+        collection_ids=collection_ids,
         profile_image_url=latest.get("profile_image_url"),
         twitch_channel_url=channel_url,
         login_name=str(login) if login else None,
@@ -314,16 +364,29 @@ def _creator_data(settings: Settings, catalog: Catalog, game):
                 record = _observation_record(item)
                 record["observed_at"] = snapshot.observed_at
                 record["source_mode"] = snapshot.mode
+                record["source_name"] = snapshot.source_name
+                record["partial_coverage"] = bool(record.get("partial_coverage")) or bool(snapshot.partial_coverage)
+                record["collection_id"] = "|".join((snapshot.mode, snapshot.source_name, snapshot.observed_at))
                 provider_records.append(record)
         history_rows = _cached_streamer_history(str(settings.database_path))
         allowed_ids = {str(record["streamer_id"]) for record in provider_records}
-        history_records = [_history_record(row) for row in history_rows if str(row.get("streamer_id")) in allowed_ids]
-        records = _dedupe_records(provider_records + history_records)
+        relevant_names = {
+            _normalized(game.name),
+            _normalized(_field(target_category, "name", "")),
+            *(_normalized(name) for name in similar_names),
+        }
+        history_records = [
+            _history_record(row)
+            for row in history_rows
+            if str(row.get("streamer_id")) in allowed_ids
+            or _normalized(row.get("game_name", "")) in relevant_names
+        ]
+        records = list(deduplicate_observations(provider_records + history_records))
         by_streamer: dict[str, list[dict[str, object]]] = {}
         for record in records:
             by_streamer.setdefault(str(record["streamer_id"]), []).append(record)
         profiles = [
-            _profile_from_records(streamer_id, creator_records, game.name, similar_names, target_snapshot.mode, target_snapshot.observed_at)
+            _profile_from_records(streamer_id, creator_records, game.name, similar_names)
             for streamer_id, creator_records in sorted(by_streamer.items())
         ]
         baseline_campaign = PromotionCampaignProfile(
@@ -350,6 +413,19 @@ def _fit_language_matches(fit, target_languages: tuple[str, ...]) -> bool:
     if not target_languages:
         return True
     return bool(fit.language and fit.language.casefold() in {language.casefold() for language in target_languages})
+
+
+def filter_creator_fits_by_tier(fits: list[Any], selected_tiers: tuple[str, ...] | list[str]) -> list[Any]:
+    """Keep fits in the selected directional audience-size bands."""
+
+    selected = {
+        normalize_creator_tier(value)
+        for value in selected_tiers
+        if normalize_creator_tier(value) != "unknown"
+    }
+    if not selected:
+        return list(fits)
+    return [fit for fit in fits if normalize_creator_tier(getattr(fit, "channel_tier", "")) in selected]
 
 
 def _fit_has_selected_history(profile: StreamerProfile, game_name: str) -> bool:
@@ -435,6 +511,7 @@ def render(st, settings: Settings, catalog: Catalog, state: DemoState) -> DemoSt
         return state
 
     st.caption("Promotion fit is directional public-signal evidence. Budget positioning is context only; no sponsorship prices are estimated.")
+    st.caption("Creator tiers are directional audience-size bands based on viewers, not sponsorship-price bands.")
     controls = st.columns(2)
     with controls[0]:
         objective_label = st.selectbox("Promotion objective", OBJECTIVES, key="developer_promotion_objective")
@@ -445,6 +522,7 @@ def render(st, settings: Settings, catalog: Catalog, state: DemoState) -> DemoSt
             "Preferred streamer tiers",
             list(STREAMER_TIERS),
             key="developer_preferred_tiers",
+            help="Directional audience-size bands based on viewers; these are not sponsorship-price bands.",
         )
         budget_position = st.selectbox("Budget positioning", BUDGET_POSITIONS, index=3, key="developer_budget_position")
     with controls[1]:
@@ -473,8 +551,7 @@ def render(st, settings: Settings, catalog: Catalog, state: DemoState) -> DemoSt
     if require_selected_history:
         fits = [fit for fit in fits if _fit_has_selected_history(profiles_by_id[fit.streamer_id], game.name)]
     if preferred_tiers:
-        selected_tiers = {value.casefold() for value in preferred_tiers}
-        fits = [fit for fit in fits if fit.channel_tier and fit.channel_tier.casefold() in selected_tiers]
+        fits = filter_creator_fits_by_tier(fits, preferred_tiers)
     if target_languages:
         fits = [fit for fit in fits if _fit_language_matches(fit, tuple(target_languages))]
     recommended = fits[:recommendation_count]

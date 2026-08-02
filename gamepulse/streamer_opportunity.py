@@ -8,6 +8,7 @@ import math
 import re
 from typing import Literal, Mapping
 
+from gamepulse.growth_windows import GrowthComparison
 from gamepulse.providers.twitch import GameTrend, Snapshot
 
 
@@ -87,6 +88,7 @@ class HistoricalGameFeatures:
     viewer_history: tuple[int, ...] = ()
     observed_at: str | None = None
     growth: float | None = None
+    growth_comparison: GrowthComparison | None = None
 
 
 @dataclass(frozen=True)
@@ -322,14 +324,19 @@ def _preference_fit(
 
 
 def _growth_signal(trend: GameTrend, history: object | None) -> tuple[float | None, bool]:
+    comparison = _field(history, "growth_comparison", default=_MISSING)
+    if comparison is not _MISSING and comparison is not None:
+        value = _as_float(_field(comparison, "percentage_change", default=None))
+        return value, value is not None
     historical_growth = _field(history, "growth_score", "growth", "growth_rate", default=_MISSING)
     if historical_growth is not _MISSING and historical_growth is not None:
         return _as_float(historical_growth), True
-    trend_growth = _as_float(getattr(trend, "growth_score", None))
-    if trend_growth is not None and abs(trend_growth) > 1e-9:
+    # Preserve provider-supplied current trend signals when no historical
+    # comparison exists; persisted history always carries a comparison object,
+    # so an invalid/missing seven-day baseline cannot fall through here.
+    trend_growth = _as_float(getattr(trend, "seven_day_growth", getattr(trend, "growth_score", None)))
+    if trend_growth is not None and (abs(trend_growth) > 1e-9 or bool(getattr(trend, "growth_available", False))):
         return trend_growth, True
-    if bool(getattr(trend, "growth_available", False)):
-        return trend_growth or 0.0, True
     return None, False
 
 

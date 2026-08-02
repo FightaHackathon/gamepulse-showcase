@@ -88,3 +88,27 @@ python scripts\prepare_datasets.py --verify --output-root data\processed\2026-08
 ```
 
 The local demo remains usable without Steam, Twitch, or Mistral credentials.
+
+## GitHub Actions verification
+
+The repository workflow is named `Tests` and the expected required check is
+`Python tests`. It runs on pull requests and pushes to `main` using Python 3.12,
+installs `requirements.txt` with pip caching, runs the full unittest discovery
+command, runs the deterministic database-build smoke test, and compiles the
+application, package, scripts, and tests.
+
+The full discovery suite includes the vertical-slice test, which reads the
+prepared prototype SQLite database. CI fetches only
+`data/prototype/gamepulse_prototype.sqlite3` from Git LFS; it intentionally does
+not download the larger raw archives or processed CSVs. The checks do not call
+Twitch or Steam and do not require credentials.
+
+Run the same checks locally from the project root:
+
+```powershell
+python -m pip install -r requirements.txt
+git lfs pull --include="data/prototype/gamepulse_prototype.sqlite3"
+python -m unittest discover -s tests -q
+python -m unittest tests.test_database -q
+python -m compileall -q app.py gamepulse scripts tests
+```

@@ -106,6 +106,7 @@ CREATE TABLE twitch_streamer_snapshots (
     broadcaster_type TEXT,
     profile_image_url TEXT,
     category_rank INTEGER,
+    partial_coverage INTEGER NOT NULL DEFAULT 0,
     source_mode TEXT NOT NULL,
     source_name TEXT NOT NULL,
     PRIMARY KEY (observed_at, stream_id)
@@ -168,6 +169,7 @@ _TWITCH_STREAMER_COLUMNS = {
     "broadcaster_type": "TEXT",
     "profile_image_url": "TEXT",
     "category_rank": "INTEGER",
+    "partial_coverage": "INTEGER NOT NULL DEFAULT 0",
 }
 
 
@@ -215,6 +217,7 @@ def ensure_twitch_snapshot_schema(connection: sqlite3.Connection) -> None:
             broadcaster_type TEXT,
             profile_image_url TEXT,
             category_rank INTEGER,
+            partial_coverage INTEGER NOT NULL DEFAULT 0,
             source_mode TEXT NOT NULL,
             source_name TEXT NOT NULL,
             PRIMARY KEY (observed_at, stream_id)

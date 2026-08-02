@@ -14,6 +14,7 @@ from gamepulse.catalog import Catalog
 from gamepulse.config import Settings
 from gamepulse.database import connect_read_only
 from gamepulse.game_mapping import GameMapping
+from gamepulse.growth_windows import calculate_window_growth
 from gamepulse.providers.twitch import Snapshot, TwitchProvider
 from gamepulse.streamer_opportunity import (
     HistoricalGameFeatures,
@@ -71,17 +72,25 @@ def _cached_streamer_snapshot(
     return provider.get_streamers(game_id)
 
 
-def _table_exists(connection: sqlite3.Connection, table: str) -> bool:
-    return bool(
-        connection.execute(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
-            (table,),
-        ).fetchone()
-    )
+def _database_freshness_signal(database_path: str) -> tuple[int, int] | None:
+    """Return a safe cache-key signal without opening or mutating the database."""
+
+    try:
+        stat = Path(database_path).stat()
+    except OSError:
+        return None
+    return int(stat.st_mtime_ns), int(stat.st_size)
+
+
+def _sql_placeholders(values: tuple[object, ...]) -> str:
+    return ", ".join("?" for _ in values)
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def _cached_steam_context(database_path: str) -> tuple[dict[str, GameMapping], dict[int, object], dict[int, dict[str, object]]]:
+def _cached_steam_context(
+    database_path: str,
+    freshness_signal: tuple[int, int] | None = None,
+) -> tuple[dict[str, GameMapping], dict[int, object], dict[int, dict[str, object]]]:
     """Read mappings and Steam metadata without creating or migrating tables."""
 
     path = Path(database_path)
@@ -92,14 +101,16 @@ def _cached_steam_context(database_path: str) -> tuple[dict[str, GameMapping], d
     except (OSError, sqlite3.Error):
         return {}, {}, {}
     try:
-        if not _table_exists(connection, "twitch_game_mappings"):
+        try:
+            mapping_rows = connection.execute(
+                """SELECT twitch_game_id, twitch_name, steam_app_id, steam_name,
+                          match_method, match_score, manual_verified
+                   FROM twitch_game_mappings"""
+            ).fetchall()
+        except sqlite3.Error:
             return {}, {}, {}
         mappings: dict[str, GameMapping] = {}
-        for row in connection.execute(
-            """SELECT twitch_game_id, twitch_name, steam_app_id, steam_name,
-                      match_method, match_score, manual_verified
-               FROM twitch_game_mappings"""
-        ):
+        for row in mapping_rows:
             mappings[str(row[0])] = GameMapping(
                 twitch_game_id=str(row[0]),
                 twitch_name=str(row[1]),
@@ -112,39 +123,69 @@ def _cached_steam_context(database_path: str) -> tuple[dict[str, GameMapping], d
 
         features: dict[int, object] = {}
         metadata: dict[int, dict[str, object]] = {}
-        if not _table_exists(connection, "games"):
+        reliable_app_ids = tuple(
+            sorted(
+                {
+                    mapping.steam_app_id
+                    for mapping in mappings.values()
+                    if mapping.is_reliable and mapping.steam_app_id is not None
+                }
+            )
+        )
+        if not reliable_app_ids:
             return mappings, features, metadata
-        has_genres = _table_exists(connection, "game_genres")
-        has_tags = _table_exists(connection, "game_tags")
-        for mapping in mappings.values():
-            if not mapping.is_reliable or mapping.steam_app_id is None:
-                continue
-            game_row = connection.execute(
-                "SELECT name, review_score FROM games WHERE steam_app_id = ?",
-                (mapping.steam_app_id,),
-            ).fetchone()
+
+        placeholders = _sql_placeholders(reliable_app_ids)
+        try:
+            game_rows = connection.execute(
+                f"""SELECT steam_app_id, name, review_score
+                    FROM games
+                    WHERE steam_app_id IN ({placeholders})
+                    ORDER BY steam_app_id""",
+                reliable_app_ids,
+            ).fetchall()
+        except sqlite3.Error:
+            return mappings, features, metadata
+        games_by_app_id = {int(row[0]): row for row in game_rows}
+
+        genres_by_app_id: dict[int, list[str]] = {}
+        try:
+            for row in connection.execute(
+                f"""SELECT steam_app_id, value
+                    FROM game_genres
+                    WHERE steam_app_id IN ({placeholders})
+                    ORDER BY steam_app_id, value""",
+                reliable_app_ids,
+            ):
+                genres_by_app_id.setdefault(int(row[0]), []).append(str(row[1]))
+        except sqlite3.Error:
+            genres_by_app_id = {}
+
+        tags_by_app_id: dict[int, list[str]] = {}
+        try:
+            for row in connection.execute(
+                f"""SELECT steam_app_id, value
+                    FROM game_tags
+                    WHERE steam_app_id IN ({placeholders})
+                    ORDER BY steam_app_id, value""",
+                reliable_app_ids,
+            ):
+                tags_by_app_id.setdefault(int(row[0]), []).append(str(row[1]))
+        except sqlite3.Error:
+            tags_by_app_id = {}
+
+        for app_id in reliable_app_ids:
+            game_row = games_by_app_id.get(app_id)
             if game_row is None:
                 continue
-            genres = tuple(
-                str(row[0])
-                for row in connection.execute(
-                    "SELECT value FROM game_genres WHERE steam_app_id = ? ORDER BY value",
-                    (mapping.steam_app_id,),
-                )
-            ) if has_genres else ()
-            tags = tuple(
-                str(row[0])
-                for row in connection.execute(
-                    "SELECT value FROM game_tags WHERE steam_app_id = ? ORDER BY value",
-                    (mapping.steam_app_id,),
-                )
-            ) if has_tags else ()
-            features[mapping.steam_app_id] = SimpleNamespace(genres=genres, tags=tags)
-            metadata[mapping.steam_app_id] = {
-                "name": str(game_row[0]),
+            genres = tuple(genres_by_app_id.get(app_id, ()))
+            tags = tuple(tags_by_app_id.get(app_id, ()))
+            features[app_id] = SimpleNamespace(genres=genres, tags=tags)
+            metadata[app_id] = {
+                "name": str(game_row[1]),
                 "genres": genres,
                 "tags": tags,
-                "review_score": game_row[1],
+                "review_score": game_row[2],
             }
         return mappings, features, metadata
     except sqlite3.Error:
@@ -154,62 +195,116 @@ def _cached_steam_context(database_path: str) -> tuple[dict[str, GameMapping], d
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def _cached_twitch_history(database_path: str, game_id: str) -> tuple[dict[str, object], ...]:
-    """Load persisted category history, if the disposable snapshot table exists."""
+def _cached_twitch_history_batch(
+    database_path: str,
+    game_ids: tuple[str, ...],
+    freshness_signal: tuple[int, int] | None = None,
+) -> dict[str, tuple[dict[str, object], ...]]:
+    """Load all requested category history rows in one read-only query."""
+
+    normalized_game_ids = tuple(sorted({str(game_id) for game_id in game_ids if str(game_id)}))
+    if not normalized_game_ids:
+        return {}
 
     path = Path(database_path)
     if not path.exists():
-        return ()
+        return {}
     try:
         connection = connect_read_only(path)
     except (OSError, sqlite3.Error):
-        return ()
+        return {}
     try:
-        if not _table_exists(connection, "twitch_game_snapshots"):
-            return ()
-        rows = connection.execute(
-            """SELECT observed_at, viewer_count, channel_count, viewer_to_channel,
-                      top_one_viewer_share, top_five_viewer_share, growth_score,
-                      source_mode, source_name, partial_coverage
-               FROM twitch_game_snapshots
-               WHERE game_id = ?
-               ORDER BY observed_at""",
-            (str(game_id),),
-        )
-        return tuple(dict(row) for row in rows)
+        placeholders = _sql_placeholders(normalized_game_ids)
+        rows_by_game_id: dict[str, list[dict[str, object]]] = {
+            game_id: [] for game_id in normalized_game_ids
+        }
+        try:
+            rows = connection.execute(
+                f"""SELECT game_id, observed_at, viewer_count, channel_count,
+                          viewer_to_channel, top_one_viewer_share,
+                          top_five_viewer_share, growth_score, source_mode,
+                          source_name, partial_coverage
+                   FROM twitch_game_snapshots
+                   WHERE game_id IN ({placeholders})
+                   ORDER BY game_id, observed_at""",
+                normalized_game_ids,
+            )
+        except sqlite3.Error:
+            return {}
+        for row in rows:
+            row_dict = dict(row)
+            rows_by_game_id.setdefault(str(row_dict.pop("game_id")), []).append(row_dict)
+        return {game_id: tuple(rows) for game_id, rows in rows_by_game_id.items()}
     except sqlite3.Error:
-        return ()
+        return {}
     finally:
         connection.close()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_twitch_history(
+    database_path: str,
+    game_id: str,
+    freshness_signal: tuple[int, int] | None = None,
+) -> tuple[dict[str, object], ...]:
+    """Compatibility wrapper for one category, backed by the batch reader."""
+
+    return _cached_twitch_history_batch(
+        database_path,
+        (str(game_id),),
+        freshness_signal,
+    ).get(str(game_id), ())
 
 
 def _historical_features(rows: tuple[dict[str, object], ...]) -> HistoricalGameFeatures | None:
     if not rows:
         return None
-    viewers = tuple(int(row["viewer_count"]) for row in rows if row.get("viewer_count") is not None)
+    numeric_viewers: list[float] = []
+    for row in rows:
+        try:
+            value = float(row.get("viewer_count"))
+        except (TypeError, ValueError):
+            continue
+        if value >= 0 and value == value and value not in (float("inf"), float("-inf")):
+            numeric_viewers.append(value)
+    viewers = tuple(int(value) for value in numeric_viewers)
     latest = rows[-1]
-    growth = latest.get("growth_score")
-    numeric_viewers = [float(value) for value in viewers if value >= 0]
+    growth_comparison = calculate_window_growth(rows, "seven-day")
     volatility = None
     if len(numeric_viewers) >= 2 and mean(numeric_viewers) > 0:
         volatility = min(1.0, pstdev(numeric_viewers) / mean(numeric_viewers))
     return HistoricalGameFeatures(
-        growth_score=float(growth) if growth is not None else None,
+        growth_score=growth_comparison.percentage_change,
         volatility=volatility,
         observation_count=len(rows),
         observation_consistency=min(1.0, len(rows) / 10.0),
         viewer_history=viewers,
-        observed_at=str(latest.get("observed_at") or "") or None,
+        observed_at=growth_comparison.latest_timestamp or str(latest.get("observed_at") or "") or None,
+        growth_comparison=growth_comparison,
     )
 
 
 def _historical_context(database_path: Path, trends: list[Any]) -> dict[str, HistoricalGameFeatures]:
     context: dict[str, HistoricalGameFeatures] = {}
-    for trend in trends:
-        rows = _cached_twitch_history(str(database_path), str(getattr(trend, "game_id", "")))
+    game_ids = tuple(
+        sorted(
+            {
+                str(getattr(trend, "game_id", ""))
+                for trend in trends
+                if str(getattr(trend, "game_id", ""))
+            }
+        )
+    )
+    rows_by_game_id = _cached_twitch_history_batch(
+        str(database_path),
+        game_ids,
+        _database_freshness_signal(str(database_path)),
+    )
+    for game_id in game_ids:
+        rows = rows_by_game_id.get(game_id, ())
         features = _historical_features(rows)
         if features is not None:
-            context[str(getattr(trend, "game_id", ""))] = features
+            context[game_id] = features
     return context
 
 
@@ -277,7 +372,9 @@ def render(st, settings: Settings, catalog: Catalog, state: DemoState) -> DemoSt
     render_snapshot_status(st, snapshot, freshness)
     trends = list(snapshot.data or [])
     trend_by_id = {str(getattr(trend, "game_id", "")): trend for trend in trends}
-    mappings, steam_features, steam_metadata = _cached_steam_context(str(settings.database_path))
+    database_path = str(settings.database_path)
+    freshness_signal = _database_freshness_signal(database_path)
+    mappings, steam_features, steam_metadata = _cached_steam_context(database_path, freshness_signal)
     historical_features = _historical_context(settings.database_path, trends)
 
     tabs = st.tabs(["Game Opportunities", "Category Deep Dive", "Creator Landscape"])
@@ -403,7 +500,11 @@ def render(st, settings: Settings, catalog: Catalog, state: DemoState) -> DemoSt
             )
             st.session_state["gp_streamer_selected_category_id"] = selected_category_id
             selected_trend = trend_by_id[selected_category_id]
-            history = _cached_twitch_history(str(settings.database_path), selected_category_id)
+            history = _cached_twitch_history(
+                str(settings.database_path),
+                selected_category_id,
+                _database_freshness_signal(str(settings.database_path)),
+            )
             mapping = mappings.get(selected_category_id)
             mapped_metadata = steam_metadata.get(mapping.steam_app_id) if mapping and mapping.is_reliable and mapping.steam_app_id else None
             render_category_deep_dive(

@@ -6,7 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import math
 import re
-from typing import Mapping
+from statistics import median
+from typing import Iterable, Mapping
 
 
 FIT_WEIGHTS = {
@@ -25,6 +26,69 @@ AUDIENCE_RANGES = {
     "mid-size": (1_000, 20_000),
     "large": (5_000, 100_000),
 }
+
+# These floors are derived from the same audience ranges used by fit scoring.
+# The ranges intentionally overlap for suitability scoring; classification is
+# deterministic by assigning each viewer count to the highest matching floor.
+CREATOR_TIER_ORDER = ("emerging", "mid-size", "large")
+CREATOR_TIER_THRESHOLDS = {
+    tier: AUDIENCE_RANGES[tier][0]
+    for tier in CREATOR_TIER_ORDER
+}
+MIN_CREATOR_TIER_HISTORY = 3
+
+
+def normalize_creator_tier(value: object) -> str:
+    """Return a canonical creator tier, or ``unknown`` for invalid values."""
+
+    normalized = str(value or "").strip().casefold().replace("_", "-").replace(" ", "-")
+    return normalized if normalized in CREATOR_TIER_THRESHOLDS else "unknown"
+
+
+def classify_creator_tier(
+    viewer_value: object,
+    observation_count: int | None = None,
+    history: Iterable[object] | None = None,
+) -> str:
+    """Classify a creator into a directional audience-size band.
+
+    Thresholds are shared with ``AUDIENCE_RANGES``: fewer than 100 viewers is
+    ``unknown``; 100-999 is ``emerging``; 1,000-4,999 is ``mid-size``; and
+    5,000 or more is ``large``. With at least three valid historical viewer
+    observations, the median is used; otherwise the supplied current or
+    average value is used. Missing and non-positive values remain unknown.
+    """
+
+    def positive_number(value: object) -> float | None:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(number) or number <= 0:
+            return None
+        return number
+
+    history_values = tuple(
+        number
+        for number in (positive_number(value) for value in (history or ()))
+        if number is not None
+    )
+    try:
+        count = None if observation_count is None else max(0, int(observation_count))
+    except (TypeError, ValueError):
+        count = 0
+    candidate = (
+        float(median(history_values))
+        if len(history_values) >= MIN_CREATOR_TIER_HISTORY
+        and (count is None or count >= MIN_CREATOR_TIER_HISTORY)
+        else positive_number(viewer_value)
+    )
+    if candidate is None:
+        return "unknown"
+    for tier in reversed(CREATOR_TIER_ORDER):
+        if candidate >= CREATOR_TIER_THRESHOLDS[tier]:
+            return tier
+    return "unknown"
 
 
 @dataclass(frozen=True)
@@ -74,6 +138,22 @@ class StreamerProfile:
     login_name: str | None = None
     profile_image: str | None = None
     channel_url: str | None = None
+    source_name: str = ""
+    provenance_note: str = ""
+    collection_ids: tuple[str, ...] = ()
+    seven_day_growth_interval_hours: float | None = None
+    seven_day_growth_baseline_at: str | None = None
+    seven_day_growth_latest_at: str | None = None
+
+    def __post_init__(self) -> None:
+        normalized_tier = normalize_creator_tier(self.tier)
+        if normalized_tier != "unknown":
+            if normalized_tier != self.tier:
+                object.__setattr__(self, "tier", normalized_tier)
+            return
+        viewer_value = self.median_viewers if self.median_viewers is not None else self.average_viewers
+        derived_tier = classify_creator_tier(viewer_value, self.observation_count)
+        object.__setattr__(self, "tier", derived_tier)
 
 
 @dataclass(frozen=True)
@@ -150,6 +230,12 @@ class StreamerFit:
     source_mode: str = "Unknown"
     observed_at: str | None = None
     partial_coverage: bool = False
+    source_name: str = ""
+    provenance_note: str = ""
+    collection_ids: tuple[str, ...] = ()
+    seven_day_growth_interval_hours: float | None = None
+    seven_day_growth_baseline_at: str | None = None
+    seven_day_growth_latest_at: str | None = None
 
     @property
     def name(self) -> str:
@@ -352,10 +438,13 @@ def _data_confidence(streamer: StreamerProfile, now: datetime | None) -> float:
     source_factors = {
         "live": 1.0,
         "fresh_snapshot": 0.75,
-        "snapshot": 0.65,
+        "cached/snapshot": 0.60,
+        "snapshot": 0.60,
+        "cached": 0.60,
         "manual": 0.60,
         "demo": 0.45,
-        "fallback": 0.35,
+        "fallback": 0.30,
+        "mixed": 0.42,
     }
     source = source_factors.get(str(streamer.source_mode).casefold(), 0.35)
     observations = _clamp(streamer.observation_count / 10.0) if streamer.observation_count else 0.15
@@ -409,6 +498,12 @@ def _cautions(
         cautions.append("Stale observations reduce confidence in the fit.")
     if str(streamer.source_mode).casefold() == "demo":
         cautions.append("Demo-only evidence is illustrative, not a live creator history.")
+    if str(streamer.source_mode).casefold() == "fallback":
+        cautions.append("Fallback evidence is cached recovery data and lowers confidence.")
+    if str(streamer.source_mode).casefold() == "mixed":
+        cautions.append("Mixed-source evidence combines collections with different provenance quality.")
+    if streamer.provenance_note:
+        cautions.append(streamer.provenance_note)
     if campaign.budget_tier:
         cautions.append("Budget tier is recorded for context; sponsorship prices are not estimated.")
     cautions.append("This is directional public-signal fit, not a sales or conversion prediction.")
@@ -519,6 +614,12 @@ def rank_streamers(
             source_mode=streamer.source_mode,
             observed_at=streamer.observed_at,
             partial_coverage=streamer.partial_coverage,
+            source_name=streamer.source_name,
+            provenance_note=streamer.provenance_note,
+            collection_ids=streamer.collection_ids,
+            seven_day_growth_interval_hours=streamer.seven_day_growth_interval_hours,
+            seven_day_growth_baseline_at=streamer.seven_day_growth_baseline_at,
+            seven_day_growth_latest_at=streamer.seven_day_growth_latest_at,
         ))
     output.sort(key=lambda item: (-item.score, -item.confidence_score, item.streamer_name.casefold(), item.streamer_id))
     return output

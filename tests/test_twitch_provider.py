@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.error import HTTPError
 from unittest.mock import patch
 
-from gamepulse.providers.twitch import TwitchProvider
+from gamepulse.providers.twitch import StreamCollection, TwitchProvider, TwitchRateLimitError
 from gamepulse.providers.twitch_snapshot import import_snapshot
 
 
@@ -27,6 +27,106 @@ class _JsonResponse:
 
 
 class TwitchProviderTests(unittest.TestCase):
+    def test_global_stream_collection_is_normalized_and_grouped_without_category_requests(self):
+        provider = TwitchProvider(Path("data/demo/twitch_snapshot.json"), "client", "secret", max_stream_pages=2)
+        calls = []
+
+        def request(url, params):
+            calls.append((url, dict(params)))
+            if params.get("after") == "cursor-1":
+                return {"data": [{
+                    "id": "stream-2",
+                    "user_id": "u2",
+                    "user_name": "Creator Two",
+                    "game_id": "g2",
+                    "game_name": "Second Category",
+                    "viewer_count": 20,
+                }], "pagination": {}}
+            return {"data": [{
+                "id": "stream-1",
+                "user_id": "u1",
+                "user_name": "Creator One",
+                "game_id": "g1",
+                "game_name": "First Category",
+                "viewer_count": 40,
+            }], "pagination": {"cursor": "cursor-1"}}
+
+        provider._request_json = request
+
+        collection = provider.collect_streams()
+        grouped = provider.get_streamers_by_game(collection)
+
+        self.assertIsInstance(collection, StreamCollection)
+        self.assertEqual(collection.pages_collected, 2)
+        self.assertEqual([item.streamer_id for item in collection.observations], ["u1", "u2"])
+        self.assertEqual([item.streamer_id for item in grouped["g1"].data], ["u1"])
+        self.assertEqual([item.streamer_id for item in grouped["g2"].data], ["u2"])
+        self.assertEqual([url for url, _params in calls if url.endswith("/streams")], [
+            "https://api.twitch.tv/helix/streams",
+            "https://api.twitch.tv/helix/streams",
+        ])
+        self.assertEqual(sum(url.endswith("/users") for url, _params in calls), 1)
+
+    def test_global_stream_collection_enriches_unique_users_in_batches_of_100(self):
+        provider = TwitchProvider(Path("data/demo/twitch_snapshot.json"), "client", "secret", max_stream_pages=3)
+        calls = []
+        stream_rows = [{
+            "id": f"stream-{index}",
+            "user_id": f"user-{index}",
+            "user_name": f"Creator {index}",
+            "game_id": "g1",
+            "game_name": "Example",
+            "viewer_count": index,
+        } for index in range(205)]
+
+        def request(url, params):
+            calls.append((url, dict(params)))
+            if url.endswith("/users"):
+                ids = params["id"]
+                self.assertLessEqual(len(ids), 100)
+                return {"data": [{"id": user_id, "display_name": f"Display {user_id}"} for user_id in ids]}
+            after = params.get("after")
+            start = 0 if after is None else 100 if after == "cursor-1" else 200
+            end = min(start + 100, len(stream_rows))
+            return {"data": stream_rows[start:end], "pagination": ({"cursor": "cursor-1"} if start == 0 else {"cursor": "cursor-2"} if start == 100 else {})}
+
+        provider._request_json = request
+
+        collection = provider.collect_streams()
+        user_calls = [params for url, params in calls if url.endswith("/users")]
+
+        self.assertEqual(len(collection.observations), 205)
+        self.assertEqual(len(user_calls), 3)
+        self.assertEqual(sorted(len(params["id"]) for params in user_calls), [5, 100, 100])
+        self.assertEqual(collection.observations[-1].name, "Display user-204")
+
+    def test_rate_limit_produces_explicit_partial_global_collection(self):
+        provider = TwitchProvider(Path("data/demo/twitch_snapshot.json"), "client", "secret", max_stream_pages=3)
+        calls = 0
+
+        def request(url, params):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return {"data": [{
+                    "id": "stream-1",
+                    "user_id": "u1",
+                    "user_name": "Creator",
+                    "game_id": "g1",
+                    "game_name": "Example",
+                    "viewer_count": 40,
+                }], "pagination": {"cursor": "cursor-1"}}
+            raise TwitchRateLimitError("rate limited")
+
+        provider._request_json = request
+
+        collection = provider.collect_streams(enrich_users=False)
+
+        self.assertEqual(collection.source_mode, "Live")
+        self.assertTrue(collection.partial_coverage)
+        self.assertIn("rate limit", collection.source_name.casefold())
+        self.assertEqual(len(collection.observations), 1)
+
     def test_live_game_trends_collect_bounded_pages_and_derive_observed_metrics(self):
         provider = TwitchProvider(Path("data/demo/twitch_snapshot.json"), "client", "secret", max_stream_pages=2)
         calls = []

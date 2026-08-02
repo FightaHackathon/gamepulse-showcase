@@ -146,7 +146,9 @@ def render_creator_fit_card(st, fit) -> None:
     reasons = " · ".join(_text(item) for item in (_get(fit, "reasons", ()) or ())[:3]) or "Based on current creator signals"
     cautions = " · ".join(_text(item) for item in (_get(fit, "cautions", ()) or ())[:3]) or "None recorded"
     source_mode = _text(_get(fit, "source_mode"))
+    source_name = _text(_get(fit, "source_name") or _get(fit, "source_mode"))
     observed_at = _text(_get(fit, "observed_at"))
+    provenance_note = _get(fit, "provenance_note", "")
     profile_image = _safe_url(_get(fit, "profile_image_url"))
     image_markup = f'<img class="gp-developer-creator-image" src="{profile_image}" alt="{html.escape(str(name), quote=True)} profile image" />' if profile_image else '<div class="gp-developer-creator-placeholder">Profile image unavailable</div>'
     channel_url = _safe_url(_get(fit, "twitch_channel_url"))
@@ -170,11 +172,12 @@ def render_creator_fit_card(st, fit) -> None:
     markup = f"""
 <article class="gp-developer-shell gp-developer-card gp-developer-creator-card" aria-label="Promotion recommendation: {html.escape(str(name), quote=True)}">
   <div class="gp-developer-creator-header"><div>{image_markup}</div><div><div class="gp-developer-card-title">{_text(name)}</div><div class="gp-developer-card-meta"><span class="gp-developer-fit-score">Promotion Fit Score {float(_get(fit, 'score', 0)):.1f}/100</span> · {_text(_get(fit, 'score_band'))}</div><div class="gp-developer-confidence">Confidence: {_percent(_get(fit, 'confidence_score'))} · {_text(_get(fit, 'confidence_band'))}</div></div></div>
-  <div class="gp-developer-creator-metrics"><span>Average viewers: {_number(_get(fit, 'average_viewers'))}</span><span>Median viewers: {_number(_get(fit, 'median_viewers'))}</span><span>Peak viewers: {_number(_get(fit, 'peak_viewers'))}</span><span>Primary category: {_text(_get(fit, 'primary_category'))}</span><span>Category share: {_percent(_get(fit, 'primary_category_share'))}</span><span>Language: {_text(_get(fit, 'language'))}</span><span>Tier: {_text(_get(fit, 'channel_tier'))}</span><span>Growth: {_percent(_get(fit, 'seven_day_growth'))}</span></div>
+  <div class="gp-developer-creator-metrics"><span>Average viewers: {_number(_get(fit, 'average_viewers'))}</span><span>Median viewers: {_number(_get(fit, 'median_viewers'))}</span><span>Peak viewers: {_number(_get(fit, 'peak_viewers'))}</span><span>Primary category: {_text(_get(fit, 'primary_category'))}</span><span>Category share: {_percent(_get(fit, 'primary_category_share'))}</span><span>Language: {_text(_get(fit, 'language'))}</span><span>Tier: {_text(_get(fit, 'channel_tier'))}</span><span>Growth: {_percent(_get(fit, 'seven_day_growth'), 'Unavailable - insufficient history')}</span><span>Growth interval: {_number(_get(fit, 'seven_day_growth_interval_hours'), 'Unavailable')}</span><span>Growth baseline: {_text(_get(fit, 'seven_day_growth_baseline_at'), 'Unavailable - insufficient history')}</span></div>
   <div class="gp-developer-component-chips">{component_markup}</div>
   <div class="gp-developer-card-copy"><strong>Strongest reasons:</strong> {reasons}</div>
   <div class="gp-developer-caution"><strong>Important cautions:</strong> {cautions}</div>
-  <div class="gp-developer-card-meta">Source: {source_mode} · observed {observed_at} · {twitch_link}</div>
+  <div class="gp-developer-card-meta">Source: {source_mode} · {source_name} · observed {observed_at} · {twitch_link}</div>
+  {f'<div class="gp-developer-card-meta">Provenance: {_text(provenance_note)}</div>' if provenance_note else ''}
 </article>
 """
     st.markdown(markup, unsafe_allow_html=True)
@@ -216,7 +219,8 @@ def creator_fits_csv(fits: Iterable[Any]) -> str:
     fieldnames = [
         "streamer_id", "streamer_name", "fit_score", "score_band", "confidence_score", "confidence_band",
         "average_viewers", "median_viewers", "peak_viewers", "primary_category", "primary_category_share",
-        "language", "channel_tier", "seven_day_growth", "source_mode", "observed_at", "twitch_channel_url",
+        "language", "channel_tier", "seven_day_growth", "seven_day_growth_interval_hours", "seven_day_growth_baseline_at", "seven_day_growth_latest_at", "source_mode", "source_name", "observed_at",
+        "partial_coverage", "provenance_note", "collection_ids", "twitch_channel_url",
         "reasons", "cautions", "category_history_fit", "similar_game_fit", "audience_suitability",
         "consistency", "momentum", "language_fit", "discoverability", "data_confidence",
     ]
@@ -240,8 +244,15 @@ def creator_fits_csv(fits: Iterable[Any]) -> str:
             "language": _get(fit, "language", ""),
             "channel_tier": _get(fit, "channel_tier", ""),
             "seven_day_growth": _get(fit, "seven_day_growth", ""),
+            "seven_day_growth_interval_hours": _get(fit, "seven_day_growth_interval_hours", ""),
+            "seven_day_growth_baseline_at": _get(fit, "seven_day_growth_baseline_at", ""),
+            "seven_day_growth_latest_at": _get(fit, "seven_day_growth_latest_at", ""),
             "source_mode": _get(fit, "source_mode", ""),
+            "source_name": _get(fit, "source_name", ""),
             "observed_at": _get(fit, "observed_at", ""),
+            "partial_coverage": _get(fit, "partial_coverage", ""),
+            "provenance_note": _get(fit, "provenance_note", ""),
+            "collection_ids": "; ".join(str(item) for item in (_get(fit, "collection_ids", ()) or ())),
             "twitch_channel_url": _get(fit, "twitch_channel_url", ""),
             "reasons": "; ".join(str(item) for item in (_get(fit, "reasons", ()) or ())),
             "cautions": "; ".join(str(item) for item in (_get(fit, "cautions", ()) or ())),

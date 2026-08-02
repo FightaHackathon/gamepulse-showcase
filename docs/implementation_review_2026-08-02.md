@@ -112,14 +112,15 @@ Implemented in `gamepulse/ui/developer.py`, `gamepulse/ui/developer_components.p
 
 ## Verification evidence
 
-Latest verification in the current workspace:
+Final integrated verification in the current workspace:
 
-- `python -m unittest tests.test_developer_components -v` — 7 passed.
-- `python -m unittest tests.test_streamer_fit -v` — 13 passed.
-- `python -m unittest discover -s tests -q` — 149 passed.
+- `python -m unittest discover -s tests -q` — 190 passed.
 - `python -m compileall -q app.py gamepulse scripts tests` — passed.
-- `streamlit run app.py` — local headless launch returned HTTP 200.
-- Demo interaction check confirmed that similar creators appear in the baseline shortlist and that emerging-tier plus selected-game-history filters remove the mid-size similar creator while retaining the selected-game creator.
+- Focused Twitch, provenance, creator-tier, aggregation, growth-window, confidence, and batched-read tests — 91 passed.
+- Named mocked complete-live, rate-limited-partial, transport-fallback, bounded-collection, and persisted-coverage subset — 9 passed (included in the focused suite above).
+- Pre-fix Twitch schema migration harness — passed; existing rows were preserved and required columns/indexes were added.
+- Headless `streamlit run app.py` health endpoint — HTTP 200; Home, Player, Streamer, and Developer AppTest loads — passed.
+- Creator CSV audit — 34 derived recommendation columns; no credential, raw-payload, pricing, conversion, sales, or revenue fields.
 
 ## Known limitations
 

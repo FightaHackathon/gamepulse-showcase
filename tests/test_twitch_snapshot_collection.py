@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from gamepulse.database import SCHEMA, initialize_schema
-from gamepulse.providers.twitch import GameTrend, Snapshot, StreamerObservation, TwitchProvider
+from gamepulse.providers.twitch import GameTrend, Snapshot, StreamCollection, StreamerObservation, TwitchProvider, TwitchRateLimitError
 from scripts.collect_twitch_snapshot import collect_and_save
 
 
@@ -60,6 +60,31 @@ class _FakeProvider:
             )],
         )
 
+    def collect_streams(self):
+        snapshot = self.get_streamers("g1")
+        return StreamCollection(
+            observations=snapshot.data,
+            pages_collected=3 if self.partial else 1,
+            partial_coverage=self.partial,
+            observed_at=snapshot.observed_at,
+            source_mode=snapshot.mode,
+            source_name=snapshot.source_name,
+        )
+
+    def get_streamers_by_game(self, collection):
+        return {
+            "g1": Snapshot(
+                collection.source_mode,
+                collection.observed_at,
+                collection.source_name,
+                list(collection.observations),
+                collection.partial_coverage,
+            )
+        }
+
+    def collect_cycle(self):
+        return self.get_game_trends(), self.collect_streams()
+
 
 class TwitchSnapshotCollectionTests(unittest.TestCase):
     def _database(self, root: Path) -> Path:
@@ -90,7 +115,7 @@ class TwitchSnapshotCollectionTests(unittest.TestCase):
         self.assertTrue({
             "observed_at", "stream_id", "streamer_id", "streamer_name", "streamer_login", "game_id", "game_name",
             "viewer_count", "language", "title", "start_time", "tags_json", "channel_size_tier", "broadcaster_type",
-            "profile_image_url", "category_rank", "source_mode", "source_name",
+            "profile_image_url", "category_rank", "partial_coverage", "source_mode", "source_name",
         } <= streamer_columns)
         self.assertTrue({
             "twitch_games_observed", "twitch_games_game_observed", "twitch_streamers_observed", "twitch_streamers_game_observed",
@@ -137,6 +162,46 @@ class TwitchSnapshotCollectionTests(unittest.TestCase):
         self.assertEqual(game_count, 4)
         self.assertEqual(streamer_count, 4)
 
+    def test_one_hundred_categories_keep_collection_requests_bounded(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            database = self._database(root)
+            provider = TwitchProvider(Path("data/demo/twitch_snapshot.json"), "client", "secret", max_stream_pages=3)
+            calls = []
+            stream_rows = [{
+                "id": f"stream-{index}",
+                "user_id": f"user-{index}",
+                "user_name": f"Creator {index}",
+                "game_id": f"g-{index % 100}",
+                "game_name": f"Category {index % 100}",
+                "viewer_count": index + 1,
+            } for index in range(205)]
+
+            def request(url, params):
+                calls.append((url, dict(params)))
+                if url.endswith("/games/top"):
+                    return {"data": [{"id": f"g-{index}", "name": f"Official Category {index}"} for index in range(100)]}
+                if url.endswith("/users"):
+                    return {"data": [{"id": user_id, "display_name": f"Display {user_id}"} for user_id in params["id"]]}
+                after = params.get("after")
+                start = 0 if after is None else 100 if after == "cursor-1" else 200
+                end = min(start + 100, len(stream_rows))
+                next_cursor = "cursor-1" if start == 0 else "cursor-2" if start == 100 else "cursor-3"
+                return {"data": stream_rows[start:end], "pagination": {"cursor": next_cursor}}
+
+            provider._request_json = request
+
+            report = collect_and_save(database, provider=provider)
+
+        helix_calls = [url for url, _params in calls]
+        self.assertEqual(report.categories, 100)
+        self.assertEqual(report.unique_streams, 205)
+        self.assertEqual(len(helix_calls), 7)
+        self.assertEqual(sum(url.endswith("/games/top") for url in helix_calls), 1)
+        self.assertEqual(sum(url.endswith("/streams") for url in helix_calls), 3)
+        self.assertEqual(sum(url.endswith("/users") for url in helix_calls), 3)
+        self.assertLess(len(helix_calls), 3 * 100)
+
     def test_partial_snapshot_report_and_rows_keep_coverage_flag(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             database = self._database(Path(temp_dir))
@@ -146,11 +211,45 @@ class TwitchSnapshotCollectionTests(unittest.TestCase):
             connection = sqlite3.connect(database)
             try:
                 row = connection.execute("SELECT coverage_page_count, partial_coverage FROM twitch_game_snapshots").fetchone()
+                streamer_partial = connection.execute("SELECT partial_coverage FROM twitch_streamer_snapshots").fetchone()
             finally:
                 connection.close()
 
         self.assertTrue(report.partial_coverage)
         self.assertEqual(row, (3, 1))
+        self.assertEqual(streamer_partial, (1,))
+
+    def test_rate_limit_fallback_has_one_cycle_wide_provenance(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database = self._database(Path(temp_dir))
+            provider = TwitchProvider(Path("data/demo/twitch_snapshot.json"), "client", "secret")
+            calls = []
+
+            def request(url, params):
+                calls.append(url)
+                if url.endswith("/games/top"):
+                    return {"data": [{"id": "g1", "name": "Example"}]}
+                raise TwitchRateLimitError("rate limited")
+
+            provider._request_json = request
+            report = collect_and_save(database, provider=provider)
+
+            connection = sqlite3.connect(database)
+            try:
+                modes = {row[0] for row in connection.execute("SELECT source_mode FROM twitch_game_snapshots UNION SELECT source_mode FROM twitch_streamer_snapshots")}
+                source_names = {row[0] for row in connection.execute("SELECT source_name FROM twitch_game_snapshots UNION SELECT source_name FROM twitch_streamer_snapshots")}
+            finally:
+                connection.close()
+
+        self.assertEqual(calls, [
+            "https://api.twitch.tv/helix/games/top",
+            "https://api.twitch.tv/helix/streams",
+        ])
+        self.assertEqual(report.source_mode, "Fallback")
+        self.assertTrue(report.partial_coverage)
+        self.assertEqual(modes, {"Fallback"})
+        self.assertEqual(len(source_names), 1)
+        self.assertIn("overall collection fallback", next(iter(source_names)))
 
     def test_reliable_steam_mapping_is_written_to_game_snapshot(self):
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -13,6 +13,7 @@ import html
 from statistics import mean
 from typing import Any, Iterable, Mapping
 
+from gamepulse.growth_windows import GrowthComparison, calculate_window_growth
 from gamepulse.providers.twitch import Snapshot
 from gamepulse.streamer_opportunity import SnapshotFreshness
 
@@ -108,27 +109,15 @@ def _history_values(history: Iterable[Any], field: str) -> list[float]:
     return values
 
 
-def _growth_from_history(history: tuple[Any, ...], days: int) -> float | None:
-    if len(history) < 2:
-        return None
-    ordered = sorted(history, key=lambda row: _parse_time(_get(row, "observed_at")) or datetime.min.replace(tzinfo=timezone.utc))
-    latest = ordered[-1]
-    latest_value = _get(latest, "viewer_count")
-    latest_time = _parse_time(_get(latest, "observed_at"))
-    if latest_value is None or latest_time is None:
-        return None
-    target = latest_time.timestamp() - days * 86400
-    prior = min(
-        ordered[:-1],
-        key=lambda row: abs((_parse_time(_get(row, "observed_at")) or latest_time).timestamp() - target),
-    )
-    prior_value = _get(prior, "viewer_count")
-    try:
-        if float(prior_value) <= 0:
-            return None
-        return (float(latest_value) - float(prior_value)) / float(prior_value)
-    except (TypeError, ValueError, ZeroDivisionError):
-        return None
+def _growth_from_history(history: tuple[Any, ...], window: str) -> GrowthComparison:
+    return calculate_window_growth(history, window)
+
+
+def _growth_metadata(comparison: GrowthComparison) -> str:
+    if not comparison.available:
+        return "Unavailable - insufficient history"
+    interval = f"{comparison.actual_interval_hours:.1f} hours" if comparison.actual_interval_hours is not None else "Unavailable"
+    return f"{interval} from {_text(comparison.baseline_timestamp)} to {_text(comparison.latest_timestamp)}"
 
 
 def render_streamer_hero(st, game, source_label: str = "Local prepared data") -> None:
@@ -168,7 +157,8 @@ def render_opportunity_card(st, opportunity, featured: bool = False) -> None:
     reasons = " · ".join(_text(item) for item in (_get(opportunity, "reasons", ()) or ())[:3]) or "Based on current Twitch category signals"
     cautions = " · ".join(_text(item) for item in (_get(opportunity, "cautions", ()) or ())[:3])
     confidence = _percent(_get(opportunity, "confidence_score"))
-    trend = _text(_get(opportunity, "trend_direction"), "No trend signal")
+    trend_value = _get(opportunity, "trend_direction")
+    trend = "Unavailable - insufficient history" if str(trend_value).casefold() == "unavailable" else _text(trend_value, "No trend signal")
     source = _text(_get(opportunity, "source_mode"), "Twitch observation")
     observed_at = _text(_get(opportunity, "observed_at"))
     caution_markup = f'<p class="gp-streamer-caution"><strong>Cautions:</strong> {cautions}</p>' if cautions else ""
@@ -214,8 +204,10 @@ def render_category_deep_dive(
     historical_ratios = _history_values(history, "viewer_to_channel")
     average = mean(historical_viewers) if historical_viewers else _get(trend, "historical_average_viewers")
     peak = max(historical_viewers) if historical_viewers else _get(trend, "historical_peak_viewers")
-    one_day = _growth_from_history(history, 1) if history else _get(trend, "one_day_growth")
-    seven_day = _growth_from_history(history, 7) if history else _get(trend, "seven_day_growth")
+    one_day_comparison = _growth_from_history(history, "one-day")
+    seven_day_comparison = _growth_from_history(history, "seven-day")
+    one_day = one_day_comparison.percentage_change
+    seven_day = seven_day_comparison.percentage_change
     ratio_history = " → ".join(_ratio(value) for value in historical_ratios) if historical_ratios else "Unavailable"
     languages = _get(trend, "language_distribution") or {}
     if isinstance(languages, Mapping):
@@ -230,8 +222,10 @@ def render_category_deep_dive(
         ("Viewers per channel", ratio),
         ("Historical average", _number(average)),
         ("Historical peak", _number(peak)),
-        ("One-day growth", _percent(one_day, "Unavailable")),
-        ("Seven-day growth", _percent(seven_day, "Unavailable")),
+        ("One-day growth", _percent(one_day, "Unavailable - insufficient history")),
+        ("One-day comparison", _growth_metadata(one_day_comparison)),
+        ("Seven-day growth", _percent(seven_day, "Unavailable - insufficient history")),
+        ("Seven-day comparison", _growth_metadata(seven_day_comparison)),
         ("Viewer-to-channel history", ratio_history),
         ("Viewer concentration", concentration),
         ("Language distribution", language_text),
@@ -330,7 +324,7 @@ def render_creator_landscape(st, snapshot: Snapshot) -> None:
             ("Category share", _percent(category_share)),
             ("Language", _text(_get(creator, "language"))),
             ("Tier", _text(_get(creator, "channel_size_tier"))),
-            ("Growth", _percent(growth)),
+            ("Growth", _percent(growth, "Unavailable - insufficient history")),
             ("Confidence", _percent(confidence)),
         )
         detail_markup = " · ".join(f"<strong>{html.escape(label)}:</strong> {value}" for label, value in details)

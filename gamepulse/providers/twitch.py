@@ -70,11 +70,34 @@ class StreamerObservation:
 
 
 @dataclass(frozen=True)
+class StreamCollection:
+    """One bounded global stream pass and its explicit provenance."""
+
+    observations: list[StreamerObservation]
+    pages_collected: int
+    partial_coverage: bool
+    observed_at: str
+    source_mode: str
+    source_name: str
+
+    @property
+    def data(self) -> list[StreamerObservation]:
+        """Snapshot-shaped compatibility access for collection consumers."""
+        return self.observations
+
+    @property
+    def mode(self) -> str:
+        """Snapshot-shaped compatibility access for provenance consumers."""
+        return self.source_mode
+
+
+@dataclass(frozen=True)
 class Snapshot:
     mode: str
     observed_at: str
     source_name: str
     data: list
+    partial_coverage: bool = False
 
 
 class TwitchRateLimitError(RuntimeError):
@@ -252,6 +275,18 @@ class TwitchProvider:
         filtered = [item for item in cached.data if str(item.game_id) == str(game_id)]
         return Snapshot("Fallback", cached.observed_at, f"{cached.source_name} (cached fallback)", filtered)
 
+    def _fallback_stream_collection(self, reason: str) -> StreamCollection:
+        cached = self._demo("streamers", self._streamer_from_item)
+        source_name = f"{cached.source_name} (cached fallback; {reason})"
+        return StreamCollection(
+            observations=list(cached.data),
+            pages_collected=0,
+            partial_coverage=True,
+            observed_at=cached.observed_at,
+            source_mode="Fallback",
+            source_name=source_name,
+        )
+
     def _record_rate_limit_headers(self, headers) -> None:
         if headers is None:
             return
@@ -333,7 +368,13 @@ class TwitchProvider:
                 params["game_id"] = str(game_id)
             if cursor:
                 params["after"] = cursor
-            payload = self._request_json("https://api.twitch.tv/helix/streams", params)
+            try:
+                payload = self._request_json("https://api.twitch.tv/helix/streams", params)
+            except TwitchRateLimitError:
+                if self._rate_limit_remaining is None:
+                    self._rate_limit_remaining = 0
+                partial_coverage = True
+                break
             pages_collected += 1
             page_data = payload.get("data", [])
             if not isinstance(page_data, list):
@@ -359,127 +400,186 @@ class TwitchProvider:
         return streams, pages_collected, partial_coverage
 
     @staticmethod
-    def _metric_for_streams(streams: list[dict], observed_timestamp: float) -> dict[str, object]:
-        viewers: list[int] = []
-        channels: set[str] = set()
-        ages: list[float] = []
-        languages: Counter[str] = Counter()
-        name = ""
-        for index, item in enumerate(streams):
-            viewer_count = max(0, _as_int(item.get("viewer_count")))
-            viewers.append(viewer_count)
-            _stream_key, user_id = TwitchProvider._stream_key(item, index)
-            channels.add(user_id or _stream_key)
-            name = name or str(item.get("game_name", "") or "")
-            age = _stream_age_seconds(item.get("started_at"), observed_timestamp)
-            if age is not None:
-                ages.append(age)
-            language = str(item.get("language", "") or "").strip().casefold()
-            if language:
-                languages[language] += 1
+    def _streamer_observation_from_item(item: dict, fallback_game_id: str = "", fallback_index: int = 0) -> StreamerObservation | None:
+        streamer_id = str(
+            item.get("streamer_id")
+            or item.get("user_id")
+            or item.get("user_name")
+            or item.get("user_login")
+            or ""
+        ).strip()
+        if not streamer_id:
+            return None
+        return StreamerObservation(
+            streamer_id=streamer_id,
+            name=str(item.get("name") or item.get("user_name") or item.get("user_login") or streamer_id),
+            game_id=str(item.get("game_id") or fallback_game_id),
+            game_name=str(item.get("game_name") or ""),
+            viewer_count=max(0, _as_int(item.get("viewer_count"))),
+            language=str(item.get("language") or ""),
+            channel_size_tier=str(item.get("channel_size_tier") or "unknown"),
+            tags=_as_tags(item.get("tags", ())),
+            stream_id=(str(item.get("stream_id") or item.get("id")) if item.get("stream_id") or item.get("id") else None),
+            login_name=(str(item["login_name"]) if item.get("login_name") else str(item["user_login"]) if item.get("user_login") else None),
+            stream_title=(str(item.get("stream_title") or item["title"]) if item.get("stream_title") or item.get("title") else None),
+            started_at=(str(item["started_at"]) if item.get("started_at") else None),
+            thumbnail_url=(str(item["thumbnail_url"]) if item.get("thumbnail_url") else None),
+            broadcaster_type=(str(item["broadcaster_type"]) if item.get("broadcaster_type") else None),
+            profile_image_url=(str(item["profile_image_url"]) if item.get("profile_image_url") else None),
+            category_rank=_as_int(item.get("category_rank"), 0) or None,
+        )
+
+    @classmethod
+    def _normalize_stream_rows(cls, stream_rows: list[dict]) -> list[StreamerObservation]:
+        observations = []
+        for index, item in enumerate(stream_rows):
+            if not isinstance(item, dict):
+                continue
+            observation = cls._streamer_observation_from_item(item, fallback_index=index)
+            if observation is not None:
+                observations.append(observation)
+        return observations
+
+    @staticmethod
+    def _metric_for_observations(observations: list[StreamerObservation], observed_timestamp: float) -> dict[str, object]:
+        viewers = [max(0, int(item.viewer_count)) for item in observations]
+        channels = {item.streamer_id or item.stream_id or f"stream:{index}" for index, item in enumerate(observations)}
+        ages = [
+            age
+            for item in observations
+            if (age := _stream_age_seconds(item.started_at, observed_timestamp)) is not None
+        ]
+        languages: Counter[str] = Counter(
+            str(item.language).strip().casefold()
+            for item in observations
+            if str(item.language).strip()
+        )
         total_viewers = sum(viewers)
-        top_one = max(viewers, default=0) / total_viewers if total_viewers else 0.0
-        top_five = sum(sorted(viewers, reverse=True)[:5]) / total_viewers if total_viewers else 0.0
         return {
-            "name": name,
+            "name": next((item.game_name for item in observations if item.game_name), ""),
             "viewers": total_viewers,
             "channels": channels,
-            "viewer_counts": viewers,
             "ages": ages,
             "languages": languages,
-            "top_one": top_one,
-            "top_five": top_five,
+            "top_one": max(viewers, default=0) / total_viewers if total_viewers else 0.0,
+            "top_five": sum(sorted(viewers, reverse=True)[:5]) / total_viewers if total_viewers else 0.0,
         }
 
-    def get_game_trends(self) -> Snapshot:
-        if not self.client_id or not self.client_secret:
-            return self._demo("games", self._game_from_item)
+    @staticmethod
+    def _observed_timestamp(observed_at: str) -> float:
         try:
-            top_payload = self._request_json("https://api.twitch.tv/helix/games/top", {"first": "100"})
-            top_data = top_payload.get("data", [])
-            if not isinstance(top_data, list):
-                raise ValueError("Twitch top games response data must be an array")
-            if self._can_make_optional_request():
-                stream_rows, pages_collected, partial_coverage = self._collect_stream_pages()
-            else:
-                stream_rows, pages_collected, partial_coverage = [], 0, True
-            observed_timestamp = time.time()
-            by_game: dict[str, list[dict]] = {}
-            for item in stream_rows:
-                game_id = str(item.get("game_id", "") or "").strip()
-                if game_id:
-                    by_game.setdefault(game_id, []).append(item)
+            return datetime.fromisoformat(observed_at.replace("Z", "+00:00")).timestamp()
+        except (TypeError, ValueError, OverflowError):
+            return time.time()
 
-            games: list[GameTrend] = []
-            seen_ids: set[str] = set()
-            for index, item in enumerate(top_data, start=1):
-                if not isinstance(item, dict) or not item.get("id") or not item.get("name"):
-                    continue
-                game_id = str(item["id"])
-                metric = self._metric_for_streams(by_game.get(game_id, []), observed_timestamp)
-                channels = metric["channels"]
-                viewers = int(metric["viewers"])
-                ages = metric["ages"]
-                languages = metric["languages"]
-                games.append(GameTrend(
-                    game_id,
-                    str(item["name"]),
-                    viewers,
-                    len(channels),
-                    0.0,
-                    (),
-                    rank=index,
-                    viewer_to_channel=viewers / max(len(channels), 1),
-                    top_one_viewer_share=float(metric["top_one"]),
-                    top_five_viewer_share=float(metric["top_five"]),
-                    average_stream_age_seconds=(sum(ages) / len(ages) if ages else None),
-                    language_distribution=tuple(sorted(languages.items(), key=lambda entry: (-entry[1], entry[0]))),
-                    contributing_stream_rows=len(by_game.get(game_id, [])),
-                    pages_collected=pages_collected,
-                    partial_coverage=partial_coverage,
-                    observed_total=bool(by_game.get(game_id)),
-                ))
-                seen_ids.add(game_id)
-            for game_id, rows in by_game.items():
-                if game_id in seen_ids:
-                    continue
-                metric = self._metric_for_streams(rows, observed_timestamp)
-                channels = metric["channels"]
-                viewers = int(metric["viewers"])
-                ages = metric["ages"]
-                languages = metric["languages"]
-                games.append(GameTrend(
-                    game_id,
-                    str(metric["name"]),
-                    viewers,
-                    len(channels),
-                    0.0,
-                    (),
-                    viewer_to_channel=viewers / max(len(channels), 1),
-                    top_one_viewer_share=float(metric["top_one"]),
-                    top_five_viewer_share=float(metric["top_five"]),
-                    average_stream_age_seconds=(sum(ages) / len(ages) if ages else None),
-                    language_distribution=tuple(sorted(languages.items(), key=lambda entry: (-entry[1], entry[0]))),
-                    contributing_stream_rows=len(rows),
-                    pages_collected=pages_collected,
-                    partial_coverage=partial_coverage,
-                    observed_total=True,
-                ))
-            return Snapshot("Live", _now_iso(), f"Twitch Helix /games/top + /streams (bounded first 100, up to {self.max_stream_pages} pages; observed totals)", games)
-        except (OSError, ValueError, KeyError, RuntimeError, HTTPError):
-            return self._fallback_game_trends()
+    def _fetch_top_games(self) -> list[dict]:
+        top_payload = self._request_json("https://api.twitch.tv/helix/games/top", {"first": "100"})
+        top_data = top_payload.get("data", [])
+        if not isinstance(top_data, list):
+            raise ValueError("Twitch top games response data must be an array")
+        return [item for item in top_data if isinstance(item, dict) and item.get("id") and item.get("name")]
 
-    def _enrich_streamers(self, observations: list[StreamerObservation]) -> list[StreamerObservation]:
-        if not observations or not self._can_make_optional_request():
-            return observations
-        ids = [item.streamer_id for item in observations if item.streamer_id]
+    def _game_snapshot_from_collection(
+        self,
+        top_data: list[dict],
+        collection: StreamCollection,
+        source_name: str | None = None,
+    ) -> Snapshot:
+        by_game: dict[str, list[StreamerObservation]] = {}
+        for observation in collection.observations:
+            if observation.game_id:
+                by_game.setdefault(str(observation.game_id), []).append(observation)
+
+        observed_timestamp = self._observed_timestamp(collection.observed_at)
+        games: list[GameTrend] = []
+        seen_ids: set[str] = set()
+        for rank, item in enumerate(top_data, start=1):
+            game_id = str(item["id"])
+            rows = by_game.get(game_id, [])
+            metric = self._metric_for_observations(rows, observed_timestamp)
+            channels = metric["channels"]
+            viewers = int(metric["viewers"])
+            ages = metric["ages"]
+            languages = metric["languages"]
+            games.append(GameTrend(
+                game_id,
+                str(item["name"]),
+                viewers,
+                len(channels),
+                0.0,
+                (),
+                rank=rank,
+                viewer_to_channel=viewers / max(len(channels), 1),
+                top_one_viewer_share=float(metric["top_one"]),
+                top_five_viewer_share=float(metric["top_five"]),
+                average_stream_age_seconds=(sum(ages) / len(ages) if ages else None),
+                language_distribution=tuple(sorted(languages.items(), key=lambda entry: (-entry[1], entry[0]))),
+                contributing_stream_rows=len(rows),
+                pages_collected=collection.pages_collected,
+                partial_coverage=collection.partial_coverage,
+                observed_total=bool(rows),
+            ))
+            seen_ids.add(game_id)
+
+        for game_id, rows in by_game.items():
+            if game_id in seen_ids:
+                continue
+            metric = self._metric_for_observations(rows, observed_timestamp)
+            channels = metric["channels"]
+            viewers = int(metric["viewers"])
+            ages = metric["ages"]
+            languages = metric["languages"]
+            games.append(GameTrend(
+                game_id,
+                str(metric["name"]),
+                viewers,
+                len(channels),
+                0.0,
+                (),
+                viewer_to_channel=viewers / max(len(channels), 1),
+                top_one_viewer_share=float(metric["top_one"]),
+                top_five_viewer_share=float(metric["top_five"]),
+                average_stream_age_seconds=(sum(ages) / len(ages) if ages else None),
+                language_distribution=tuple(sorted(languages.items(), key=lambda entry: (-entry[1], entry[0]))),
+                contributing_stream_rows=len(rows),
+                pages_collected=collection.pages_collected,
+                partial_coverage=collection.partial_coverage,
+                observed_total=True,
+            ))
+        return Snapshot(collection.source_mode, collection.observed_at, source_name or collection.source_name, games, collection.partial_coverage)
+
+    def _enrich_streamers_with_status(
+        self,
+        observations: list[StreamerObservation],
+    ) -> tuple[list[StreamerObservation], bool, str | None]:
+        ids = list(dict.fromkeys(item.streamer_id for item in observations if item.streamer_id))
         if not ids:
-            return observations
-        payload = self._request_json("https://api.twitch.tv/helix/users", {"id": ids[:100]})
-        users = payload.get("data", [])
-        if not isinstance(users, list):
-            return observations
-        profiles = {str(item.get("id")): item for item in users if isinstance(item, dict) and item.get("id")}
+            return observations, False, None
+        profiles: dict[str, dict] = {}
+        partial = False
+        reason: str | None = None
+        for start in range(0, len(ids), 100):
+            if not self._can_make_optional_request():
+                partial = True
+                reason = "rate limit capacity"
+                break
+            try:
+                payload = self._request_json("https://api.twitch.tv/helix/users", {"id": ids[start:start + 100]})
+            except TwitchRateLimitError:
+                partial = True
+                reason = "rate limit"
+                break
+            except (OSError, ValueError, KeyError, RuntimeError, HTTPError):
+                partial = True
+                reason = "profile enrichment unavailable"
+                break
+            users = payload.get("data", [])
+            if not isinstance(users, list):
+                partial = True
+                reason = "profile enrichment unavailable"
+                break
+            profiles.update({str(item.get("id")): item for item in users if isinstance(item, dict) and item.get("id")})
+
         enriched = []
         for observation in observations:
             profile = profiles.get(observation.streamer_id, {})
@@ -490,45 +590,95 @@ class TwitchProvider:
                 broadcaster_type=observation.broadcaster_type or (str(profile["broadcaster_type"]) if profile.get("broadcaster_type") else None),
                 profile_image_url=observation.profile_image_url or (str(profile["profile_image_url"]) if profile.get("profile_image_url") else None),
             ))
-        return enriched
+        return enriched, partial, reason
 
-    def get_streamers(self, game_id: str) -> Snapshot:
+    def _enrich_streamers(self, observations: list[StreamerObservation]) -> list[StreamerObservation]:
+        return self._enrich_streamers_with_status(observations)[0]
+
+    def collect_streams(self, enrich_users: bool = True) -> StreamCollection:
+        """Collect one global, bounded streams pass and normalize its rows."""
+        if not self.client_id or not self.client_secret:
+            cached = self._demo("streamers", self._streamer_from_item)
+            return StreamCollection(list(cached.data), 0, False, cached.observed_at, "Demo", cached.source_name)
+        if not self._can_make_optional_request():
+            return self._fallback_stream_collection("rate limit capacity exhausted")
+        try:
+            stream_rows, pages_collected, partial_coverage = self._collect_stream_pages()
+            observations = self._normalize_stream_rows(stream_rows)
+            reason = "rate limit" if partial_coverage else None
+            if enrich_users and observations:
+                try:
+                    observations, enrichment_partial, enrichment_reason = self._enrich_streamers_with_status(observations)
+                except (OSError, ValueError, KeyError, RuntimeError, HTTPError):
+                    enrichment_partial, enrichment_reason = True, "profile enrichment unavailable"
+                partial_coverage = partial_coverage or enrichment_partial
+                reason = reason or enrichment_reason
+            if partial_coverage and not observations:
+                return self._fallback_stream_collection(reason or "partial stream collection")
+            source_name = f"Twitch Helix /streams (global bounded first 100, up to {self.max_stream_pages} pages; observed totals)"
+            if partial_coverage:
+                source_name += f" (partial coverage{f'; {reason}' if reason else ''})"
+            return StreamCollection(observations, pages_collected, partial_coverage, _now_iso(), "Live", source_name)
+        except (OSError, ValueError, KeyError, RuntimeError, HTTPError):
+            return self._fallback_stream_collection("live request unavailable")
+
+    def get_streamers_by_game(self, collection: StreamCollection) -> dict[str, Snapshot]:
+        """Group one collection in memory and rank streamers within each category."""
+        grouped: dict[str, list[StreamerObservation]] = {}
+        for observation in collection.observations:
+            grouped.setdefault(str(observation.game_id), []).append(observation)
+        snapshots: dict[str, Snapshot] = {}
+        for game_id, observations in grouped.items():
+            ranked = sorted(observations, key=lambda item: (-item.viewer_count, item.streamer_id))
+            ranked = [replace(item, category_rank=index) for index, item in enumerate(ranked, start=1)]
+            snapshots[game_id] = Snapshot(collection.source_mode, collection.observed_at, collection.source_name, ranked, collection.partial_coverage)
+        return snapshots
+
+    def get_game_trends(self, stream_collection: StreamCollection | None = None) -> Snapshot:
+        if not self.client_id or not self.client_secret:
+            return self._demo("games", self._game_from_item)
+        try:
+            top_data = self._fetch_top_games()
+            collection = stream_collection or self.collect_streams(enrich_users=False)
+            return self._game_snapshot_from_collection(top_data, collection)
+        except (OSError, ValueError, KeyError, RuntimeError, HTTPError):
+            return self._fallback_game_trends()
+
+    def collect_cycle(self) -> tuple[Snapshot, StreamCollection]:
+        """Collect games and streams once with one cycle-wide provenance state."""
+        if not self.client_id or not self.client_secret:
+            return self.get_game_trends(), self.collect_streams()
+        try:
+            top_data = self._fetch_top_games()
+        except (OSError, ValueError, KeyError, RuntimeError, HTTPError):
+            fallback_streams = self._fallback_stream_collection("top games unavailable")
+            fallback_games = self._fallback_game_trends()
+            source_name = f"{fallback_streams.source_name} (overall collection fallback)"
+            return replace(fallback_games, source_name=source_name), replace(fallback_streams, source_name=source_name)
+
+        collection = self.collect_streams(enrich_users=True)
+        if collection.source_mode != "Live":
+            fallback_games = self._fallback_game_trends()
+            source_name = f"{collection.source_name} (overall collection fallback)"
+            return replace(fallback_games, source_name=source_name), replace(collection, source_name=source_name)
+
+        source_name = f"Twitch Helix global collection (/games/top once + /streams once; up to {self.max_stream_pages} pages"
+        if collection.partial_coverage:
+            source_name += "; partial coverage"
+        source_name += ")"
+        if "rate limit" in collection.source_name.casefold():
+            source_name += " (rate limit)"
+        return self._game_snapshot_from_collection(top_data, collection, source_name), replace(collection, source_name=source_name)
+
+    def get_streamers(self, game_id: str, stream_collection: StreamCollection | None = None) -> Snapshot:
+        if stream_collection is not None:
+            snapshots = self.get_streamers_by_game(stream_collection)
+            return snapshots.get(
+                str(game_id),
+                Snapshot(stream_collection.source_mode, stream_collection.observed_at, stream_collection.source_name, [], stream_collection.partial_coverage),
+            )
         if not self.client_id or not self.client_secret:
             cached = self._fallback_streamers(game_id)
             return Snapshot("Demo", cached.observed_at, "local demo fixture", cached.data)
-        try:
-            stream_rows, _pages_collected, _partial_coverage = self._collect_stream_pages(str(game_id))
-            observed = []
-            for item in stream_rows:
-                if not isinstance(item, dict):
-                    continue
-                _stream_key, user_id = self._stream_key(item, len(observed))
-                streamer_id = user_id or str(item.get("user_name", "") or item.get("user_login", "") or "").strip()
-                if not streamer_id:
-                    continue
-                observed.append(StreamerObservation(
-                    streamer_id=streamer_id,
-                    name=str(item.get("user_name") or item.get("user_login") or streamer_id),
-                    game_id=str(item.get("game_id", game_id) or game_id),
-                    game_name=str(item.get("game_name", "") or ""),
-                    viewer_count=max(0, _as_int(item.get("viewer_count"))),
-                    language=str(item.get("language", "") or ""),
-                    channel_size_tier=str(item.get("channel_size_tier", "unknown") or "unknown"),
-                    tags=_as_tags(item.get("tags", ())),
-                    stream_id=(str(item["id"]) if item.get("id") else None),
-                    login_name=(str(item["user_login"]) if item.get("user_login") else None),
-                    stream_title=(str(item["title"]) if item.get("title") else None),
-                    started_at=(str(item["started_at"]) if item.get("started_at") else None),
-                    thumbnail_url=(str(item["thumbnail_url"]) if item.get("thumbnail_url") else None),
-                    broadcaster_type=(str(item["broadcaster_type"]) if item.get("broadcaster_type") else None),
-                    profile_image_url=(str(item["profile_image_url"]) if item.get("profile_image_url") else None),
-                ))
-            observed.sort(key=lambda item: (-item.viewer_count, item.streamer_id))
-            observed = [replace(item, category_rank=index) for index, item in enumerate(observed, start=1)]
-            try:
-                observed = self._enrich_streamers(observed)
-            except (OSError, ValueError, KeyError, RuntimeError, HTTPError):
-                pass
-            return Snapshot("Live", _now_iso(), f"Twitch Helix /streams (bounded first 100, up to {self.max_stream_pages} pages; observed totals)", observed)
-        except (OSError, ValueError, KeyError, RuntimeError, HTTPError):
-            return self._fallback_streamers(game_id)
+        collection = self.collect_streams(enrich_users=True)
+        return self.get_streamers(str(game_id), collection)

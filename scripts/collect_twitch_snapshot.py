@@ -112,8 +112,8 @@ def save_streamer_snapshots(connection: sqlite3.Connection, snapshot: Snapshot) 
             """INSERT OR REPLACE INTO twitch_streamer_snapshots (
                 observed_at, stream_id, streamer_id, streamer_name, streamer_login, game_id, game_name,
                 viewer_count, language, title, start_time, tags_json, channel_size_tier,
-                broadcaster_type, profile_image_url, category_rank, source_mode, source_name
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                broadcaster_type, profile_image_url, category_rank, partial_coverage, source_mode, source_name
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 snapshot.observed_at,
                 stream_id,
@@ -131,6 +131,7 @@ def save_streamer_snapshots(connection: sqlite3.Connection, snapshot: Snapshot) 
                 observation.broadcaster_type,
                 observation.profile_image_url,
                 observation.category_rank,
+                int(bool(snapshot.partial_coverage)),
                 snapshot.mode,
                 snapshot.source_name,
             ),
@@ -165,17 +166,18 @@ def collect_and_save(
         settings = settings or Settings.from_env(project_root)
         provider = _provider_for(settings, demo, max_pages)
 
-    game_snapshot = provider.get_game_trends()
+    collect_cycle = getattr(provider, "collect_cycle", None)
+    if not callable(collect_cycle):
+        raise TypeError("Twitch snapshot collection providers must implement collect_cycle()")
+    game_snapshot, shared_collection = collect_cycle()
+    streamer_snapshots = list(provider.get_streamers_by_game(shared_collection).values())
     game_rows = list(game_snapshot.data)
     for trend in game_rows:
         _validate_game_trend(trend)
 
-    streamer_snapshots: list[Snapshot] = []
-    for trend in game_rows:
-        streamer_snapshot = provider.get_streamers(str(trend.game_id))
+    for streamer_snapshot in streamer_snapshots:
         for observation in streamer_snapshot.data:
             _validate_streamer_observation(observation)
-        streamer_snapshots.append(streamer_snapshot)
 
     database_path = Path(database_path)
     database_path.parent.mkdir(parents=True, exist_ok=True)
@@ -214,7 +216,7 @@ def collect_and_save(
         unique_streams=len(stream_ids),
         categories=len(game_rows),
         streamers=len(streamer_ids),
-        partial_coverage=any(bool(trend.partial_coverage) for trend in game_rows),
+        partial_coverage=bool(getattr(shared_collection, "partial_coverage", False)) or any(bool(trend.partial_coverage) for trend in game_rows),
         game_rows_upserted=game_rows_upserted,
         streamer_rows_upserted=streamer_rows_upserted,
     )
