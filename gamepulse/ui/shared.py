@@ -1,7 +1,5 @@
 """Pure shared state and small rendering helpers."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass, replace
 
 
@@ -31,4 +29,3 @@ def render_game_header(st, game, source_mode: str = "Local prepared data") -> No
     if game.review_score is not None:
         details.append(f"Review score {game.review_score:.1%}")
     st.caption(" · ".join(details) + f" · Source: {source_mode}")
-

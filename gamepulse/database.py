@@ -1,7 +1,5 @@
 """SQLite schema and read-only connections for the disposable prototype DB."""
 
-from __future__ import annotations
-
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path

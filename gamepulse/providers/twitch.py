@@ -1,7 +1,5 @@
 """Twitch Helix provider with a clearly labelled offline demo fallback."""
 
-from __future__ import annotations
-
 import json
 import time
 import urllib.parse

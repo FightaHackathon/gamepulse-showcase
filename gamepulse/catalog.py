@@ -1,7 +1,5 @@
 """Typed catalogue queries shared by all GamePulse prototype modes."""
 
-from __future__ import annotations
-
 import sqlite3
 from dataclasses import dataclass, replace
 from pathlib import Path

@@ -1,7 +1,5 @@
 """Public Steam market signals and explicitly estimated scenarios."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 import math
 import sqlite3

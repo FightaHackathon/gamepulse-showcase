@@ -1,7 +1,5 @@
 """Environment-backed settings for the local GamePulse prototype."""
 
-from __future__ import annotations
-
 import os
 import sys
 from dataclasses import dataclass

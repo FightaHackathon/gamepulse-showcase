@@ -1,7 +1,5 @@
 """Session-only state for optional public Steam personalization."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Literal
 

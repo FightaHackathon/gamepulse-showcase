@@ -1,7 +1,5 @@
 """Public Steam profile/library connector; never handles Steam passwords."""
 
-from __future__ import annotations
-
 import json
 import re
 import urllib.parse

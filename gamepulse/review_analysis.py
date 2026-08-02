@@ -1,7 +1,5 @@
 """Small deterministic review analysis that works without an LLM."""
 
-from __future__ import annotations
-
 import re
 import sqlite3
 from collections import Counter
@@ -41,4 +39,3 @@ def analyze_reviews(database_path: Path, app_id: int, limit: int = 5000) -> Revi
     negative = [text for text, recommended in rows if not recommended]
     excerpts = tuple(text[:280].replace("\n", " ") for text, _ in rows[:5])
     return ReviewAnalysis(len(rows), round(len(positive) / len(rows), 4), _themes(positive), _themes(negative), excerpts)
-
