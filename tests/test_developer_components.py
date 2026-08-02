@@ -67,6 +67,7 @@ class DeveloperComponentTests(unittest.TestCase):
         self.assertIn("Audience", markup)
         self.assertIn("Public audience signal", markup)
         self.assertIn("not verified sales", markup)
+        self.assertNotRegex(markup, r'\n\s{4,}<div class="gp-developer-component">')
 
     def test_signal_and_evidence_cards_keep_labels_visible(self):
         st = FakeStreamlit()
@@ -116,6 +117,104 @@ class DeveloperComponentTests(unittest.TestCase):
         self.assertIn("limited observations", markup)
         self.assertIn("Demo", markup)
         self.assertIn("Category history fit", markup)
+
+    def test_creator_fit_card_labels_provenance_and_data_limitations(self):
+        st = FakeStreamlit()
+        fit = SimpleNamespace(
+            streamer_id="creator-1",
+            streamer_name="Creator One",
+            score=61.0,
+            score_band="Promising fit",
+            confidence_score=0.38,
+            confidence_band="Low confidence",
+            data_source="Historical",
+            observed_at="2025-01-01T00:00:00Z",
+            data_limitations=("Historical observations may not reflect current creator activity.",),
+            reasons=("historical category match",),
+            cautions=(),
+            components=SimpleNamespace(values={}),
+        )
+
+        render_creator_fit_card(st, fit)
+
+        markup = st.markdowns[-1][0]
+        self.assertIn("Data source: Historical", markup)
+        self.assertIn("Observation time: 2025-01-01T00:00:00Z", markup)
+        self.assertIn("Confidence level: 38%", markup)
+        self.assertIn("Data limitations:", markup)
+        self.assertIn("Historical observations may not reflect current creator activity.", markup)
+
+    def test_creator_fit_card_explains_selection_and_required_limitations(self):
+        st = FakeStreamlit()
+        fit = SimpleNamespace(
+            streamer_id="creator-1",
+            streamer_name="Creator One",
+            score=61.0,
+            score_band="Promising fit",
+            confidence_score=0.38,
+            confidence_band="Low confidence",
+            average_viewers=2000,
+            median_viewers=1800,
+            peak_viewers=6500,
+            primary_category="Example Game",
+            primary_category_share=0.75,
+            channel_tier="emerging",
+            reasons=("matches Example Game category",),
+            cautions=("Limited observations reduce confidence in the fit.",),
+            unavailable_components=("similar_game_fit",),
+            partial_coverage=True,
+            components=SimpleNamespace(values={
+                "category_history_fit": 0.8,
+                "similar_game_fit": 0.0,
+                "audience_suitability": 0.9,
+            }),
+        )
+
+        render_creator_fit_card(st, fit)
+
+        markup = st.markdowns[-1][0]
+        self.assertIn("Recommended because:", markup)
+        self.assertIn("Game/category similarity:", markup)
+        self.assertIn("Audience suitability:", markup)
+        self.assertIn("Available viewer evidence:", markup)
+        self.assertIn("Limitations:", markup)
+        self.assertIn("Missing history:", markup)
+        self.assertIn("Partial data:", markup)
+        self.assertIn("Low confidence:", markup)
+        self.assertIn("Median viewers: 1,800", markup)
+        self.assertIn("Partial coverage", markup)
+
+    def test_creator_fit_card_explains_similar_game_match_and_audience_overlap(self):
+        st = FakeStreamlit()
+        fit = SimpleNamespace(
+            streamer_id="creator-1",
+            streamer_name="Creator One",
+            score=61.0,
+            score_band="Promising fit",
+            confidence_score=0.62,
+            confidence_band="Moderate confidence",
+            average_viewers=2000,
+            median_viewers=1800,
+            channel_tier="mid-size",
+            similar_game_matches=("Stardew Valley",),
+            components=SimpleNamespace(values={
+                "category_history_fit": 0.0,
+                "similar_game_fit": 1.0,
+                "audience_suitability": 0.9,
+            }),
+        )
+
+        render_creator_fit_card(st, fit)
+
+        markup = st.markdowns[-1][0]
+        self.assertIn("Match basis:", markup)
+        self.assertIn("Similar-game history", markup)
+        self.assertIn("Similar-game match:", markup)
+        self.assertIn("Stardew Valley", markup)
+        self.assertIn("Why it matters:", markup)
+        self.assertIn("audience overlap", markup)
+        self.assertIn("related audience", markup)
+        self.assertIn("Audience suitability: 90%", markup)
 
     def test_creator_comparison_shows_two_or_three_fit_rows(self):
         st = FakeStreamlit()

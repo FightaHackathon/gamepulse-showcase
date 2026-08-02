@@ -46,7 +46,7 @@ class DeveloperModeUITests(unittest.TestCase):
         self.assertIn("Launch promotion", "\n".join(item.value for item in app.caption))
 
         tiers = next(item for item in app.multiselect if item.label == "Preferred streamer tiers")
-        tiers.set_value(["emerging"]).run()
+        tiers.set_value(["mid-size"]).run()
         require_history = next(item for item in app.checkbox if item.label == "Require selected-game history")
         require_history.set_value(True).run()
         require_history = next(item for item in app.checkbox if item.label == "Require selected-game history")
@@ -58,6 +58,21 @@ class DeveloperModeUITests(unittest.TestCase):
         languages = next(item for item in app.multiselect if item.label == "Target languages")
         languages.set_value(["en"]).run()
         self.assertEqual(languages.value, ["en"])
+
+    def test_developer_mode_has_presentation_ready_campaign_and_recommendation_sections(self):
+        app = AppTest.from_file("app.py", default_timeout=20).run()
+        app.radio[0].set_value("Developer").run()
+
+        subheaders = [item.value for item in app.subheader]
+        self.assertIn("Selected game", subheaders)
+        self.assertIn("Campaign summary", subheaders)
+        self.assertIn("Recommendation cards", subheaders)
+
+        markdown = "\n".join(item.value for item in app.markdown)
+        self.assertIn("Selected game", markdown)
+        self.assertIn("Reasons:", markdown)
+        self.assertIn("Cautions:", markdown)
+        self.assertIn("Confidence:", markdown)
 
 
 if __name__ == "__main__":

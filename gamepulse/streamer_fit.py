@@ -236,6 +236,9 @@ class StreamerFit:
     seven_day_growth_interval_hours: float | None = None
     seven_day_growth_baseline_at: str | None = None
     seven_day_growth_latest_at: str | None = None
+    data_source: str = ""
+    data_limitations: tuple[str, ...] = ()
+    similar_game_matches: tuple[str, ...] = ()
 
     @property
     def name(self) -> str:
@@ -317,13 +320,25 @@ def _category_history_fit(campaign: PromotionCampaignProfile, streamer: Streamer
     return len(overlap) / len(desired), True, len(overlap)
 
 
-def _similar_game_fit(campaign: PromotionCampaignProfile, streamer: StreamerProfile) -> tuple[float, bool]:
-    desired = {_normalized(value) for value in campaign.similar_games if _normalized(value)}
+def _similar_game_matches(campaign: PromotionCampaignProfile, streamer: StreamerProfile) -> tuple[str, ...]:
+    desired: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for value in campaign.similar_games:
+        normalized = _normalized(value)
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            desired.append((normalized, str(value).strip()))
     history = streamer.similar_game_history or streamer.category_history
     observed = {_normalized(value) for value in history if _normalized(value)}
-    if not desired or not observed:
+    return tuple(display for normalized, display in desired if normalized in observed)
+
+
+def _similar_game_fit(campaign: PromotionCampaignProfile, streamer: StreamerProfile) -> tuple[float, bool]:
+    desired = {_normalized(value) for value in campaign.similar_games if _normalized(value)}
+    matches = _similar_game_matches(campaign, streamer)
+    if not desired or not matches:
         return 0.0, False
-    return len(desired & observed) / len(desired), True
+    return len(matches) / len(desired), True
 
 
 def _range_fit(value: float, low: float, high: float) -> float:
@@ -442,6 +457,7 @@ def _data_confidence(streamer: StreamerProfile, now: datetime | None) -> float:
         "snapshot": 0.60,
         "cached": 0.60,
         "manual": 0.60,
+        "historical": 0.60,
         "demo": 0.45,
         "fallback": 0.30,
         "mixed": 0.42,
@@ -496,11 +512,14 @@ def _cautions(
         cautions.append("Partial coverage may understate or distort the streamer history.")
     if streamer.observed_at and _freshness_score(streamer.observed_at, now) < 0.5:
         cautions.append("Stale observations reduce confidence in the fit.")
-    if str(streamer.source_mode).casefold() == "demo":
+    source_mode = str(streamer.source_mode).casefold()
+    if source_mode == "demo":
         cautions.append("Demo-only evidence is illustrative, not a live creator history.")
-    if str(streamer.source_mode).casefold() == "fallback":
+    if source_mode == "fallback":
         cautions.append("Fallback evidence is cached recovery data and lowers confidence.")
-    if str(streamer.source_mode).casefold() == "mixed":
+    if source_mode == "historical":
+        cautions.append("Historical observations may not reflect current creator activity.")
+    if source_mode == "mixed":
         cautions.append("Mixed-source evidence combines collections with different provenance quality.")
     if streamer.provenance_note:
         cautions.append(streamer.provenance_note)
@@ -561,6 +580,7 @@ def rank_streamers(
         if tier and streamer.tier.casefold() != str(tier).casefold():
             continue
         category_fit, category_available, category_overlap = _category_history_fit(campaign, streamer)
+        similar_game_matches = _similar_game_matches(campaign, streamer)
         similar_fit, similar_available = _similar_game_fit(campaign, streamer)
         audience_fit, audience_available = _audience_suitability(campaign, streamer)
         consistency, consistency_available, consistency_missing = _consistency(streamer)
@@ -590,12 +610,13 @@ def rank_streamers(
         }
         score = round(_active_score(components, available), 1)
         confidence = round(data_confidence, 4)
+        limitations = _cautions(campaign, streamer, available, consistency_missing, language_note, now)
         output.append(StreamerFit(
             streamer_id=streamer.streamer_id,
             score=score,
             reasons=_reasons(campaign, streamer, components, category_overlap, language_note),
             score_band=_score_band(score),
-            cautions=_cautions(campaign, streamer, available, consistency_missing, language_note, now),
+            cautions=limitations,
             components=components,
             average_viewers=streamer.average_viewers,
             median_viewers=streamer.median_viewers,
@@ -620,6 +641,9 @@ def rank_streamers(
             seven_day_growth_interval_hours=streamer.seven_day_growth_interval_hours,
             seven_day_growth_baseline_at=streamer.seven_day_growth_baseline_at,
             seven_day_growth_latest_at=streamer.seven_day_growth_latest_at,
+            data_source=streamer.source_mode,
+            data_limitations=limitations,
+            similar_game_matches=similar_game_matches,
         ))
     output.sort(key=lambda item: (-item.score, -item.confidence_score, item.streamer_name.casefold(), item.streamer_id))
     return output

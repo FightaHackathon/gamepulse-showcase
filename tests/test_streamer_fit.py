@@ -34,6 +34,7 @@ class StreamerFitTests(unittest.TestCase):
         results = rank_streamers(game, streamers)
 
         self.assertEqual(results[0].streamer_id, "z-exact")
+        self.assertGreater(results[0].score, results[1].score)
         self.assertIn("matches Counter-Strike category", results[0].reasons)
 
     def test_category_history_match_uses_aggregate_history(self):
@@ -79,6 +80,8 @@ class StreamerFitTests(unittest.TestCase):
 
         self.assertEqual(results[0].streamer_id, "similar")
         self.assertGreater(by_id["similar"].components.similar_game_fit, by_id["other"].components.similar_game_fit)
+        self.assertEqual(by_id["similar"].similar_game_matches, ("Stardew Valley",))
+        self.assertEqual(by_id["other"].similar_game_matches, ())
 
     def test_large_creator_does_not_automatically_win(self):
         campaign = PromotionCampaignProfile(
@@ -104,6 +107,10 @@ class StreamerFitTests(unittest.TestCase):
 
     def test_language_mismatch_is_not_a_successful_match(self):
         campaign = PromotionCampaignProfile("Game", target_languages=("en", "es"))
+        match = StreamerProfile(
+            "en", {"game"}, "en", "mid-size", 2_000,
+            median_viewers=1_800, peak_viewers=4_000, observation_count=8,
+        )
         mismatch = StreamerProfile(
             "fr", {"game"}, "fr", "mid-size", 2_000,
             median_viewers=1_800, peak_viewers=4_000, observation_count=8,
@@ -113,10 +120,12 @@ class StreamerFitTests(unittest.TestCase):
             median_viewers=1_800, peak_viewers=4_000, observation_count=8,
         )
 
-        results = rank_streamers(campaign, [mismatch, missing])
+        results = rank_streamers(campaign, [match, mismatch, missing])
         by_id = {item.streamer_id: item for item in results}
 
         self.assertEqual(by_id["fr"].components.language_fit, 0.0)
+        self.assertLess(by_id["fr"].components.language_fit, by_id["en"].components.language_fit)
+        self.assertLess(by_id["fr"].score, by_id["en"].score)
         self.assertTrue(any("language" in caution.lower() for caution in by_id["fr"].cautions))
         self.assertTrue(any("missing" in caution.lower() for caution in by_id["missing"].cautions))
 
@@ -151,14 +160,21 @@ class StreamerFitTests(unittest.TestCase):
 
     def test_limited_observations_reduce_confidence_and_add_caution(self):
         campaign = PromotionCampaignProfile("Game")
+        complete = StreamerProfile(
+            "complete", {"game"}, "en", "emerging", 2_000,
+            median_viewers=1_800, peak_viewers=4_000, observation_count=10,
+            source_mode="Live",
+        )
         streamer = StreamerProfile(
             "limited", {"game"}, "en", "emerging", 2_000,
             median_viewers=1_800, peak_viewers=4_000, observation_count=1,
             source_mode="Demo", partial_coverage=True,
         )
 
-        result = rank_streamers(campaign, [streamer])[0]
+        by_id = {item.streamer_id: item for item in rank_streamers(campaign, [complete, streamer])}
+        result = by_id["limited"]
 
+        self.assertLess(result.confidence_score, by_id["complete"].confidence_score)
         self.assertLess(result.confidence_score, 0.5)
         self.assertTrue(any("observation" in caution.lower() for caution in result.cautions))
         self.assertTrue(any("partial" in caution.lower() for caution in result.cautions))

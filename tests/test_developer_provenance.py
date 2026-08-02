@@ -22,8 +22,9 @@ def _record(
     game_name: str = "Target Game",
     partial_coverage: bool = False,
     collection_id: str | None = None,
+    record_origin: str | None = None,
 ) -> dict[str, object]:
-    return {
+    record = {
         "observed_at": observed_at,
         "stream_id": f"stream-{observed_at}-{game_name}",
         "streamer_id": "creator-1",
@@ -40,9 +41,51 @@ def _record(
         "partial_coverage": partial_coverage,
         "collection_id": collection_id or f"{mode}:{observed_at}",
     }
+    if record_origin:
+        record["record_origin"] = record_origin
+    return record
 
 
 class DeveloperProvenanceTests(unittest.TestCase):
+    def test_historical_creator_rows_use_historical_source_label(self):
+        profile = _profile_from_records(
+            "creator-1",
+            [_record("Live", "database history", "2025-01-01T00:00:00Z", record_origin="historical")],
+            "Target Game",
+            (),
+        )
+
+        self.assertEqual(profile.source_mode, "Historical")
+        self.assertIn("Historical", profile.provenance_note)
+
+    def test_current_and_historical_creator_rows_are_mixed(self):
+        profile = _profile_from_records(
+            "creator-1",
+            [
+                _record("Live", "current creator collection", "2026-08-01T12:00:00Z", record_origin="current"),
+                _record("Live", "database history", "2025-01-01T00:00:00Z", record_origin="historical"),
+            ],
+            "Target Game",
+            (),
+        )
+
+        self.assertEqual(profile.source_mode, "Mixed")
+        self.assertEqual(profile.source_name, "Mixed sources")
+        self.assertIn("Historical", profile.provenance_note)
+
+    def test_ranked_fit_exposes_data_source_and_limitations(self):
+        profile = _profile_from_records(
+            "creator-1",
+            [_record("Live", "database history", "2025-01-01T00:00:00Z", record_origin="historical")],
+            "Target Game",
+            (),
+        )
+
+        fit = rank_streamers(PromotionCampaignProfile("Target Game"), [profile])[0]
+
+        self.assertEqual(fit.data_source, "Historical")
+        self.assertTrue(fit.data_limitations)
+
     def test_live_target_and_fallback_similar_records_are_not_labelled_live(self):
         profile = _profile_from_records(
             "creator-1",
@@ -138,7 +181,7 @@ class DeveloperProvenanceTests(unittest.TestCase):
         render_creator_fit_card(st, fit)
         csv_text = creator_fits_csv([fit])
 
-        self.assertIn("Source: Mixed", st.markdowns[-1])
+        self.assertIn("Data source: Mixed", st.markdowns[-1])
         self.assertIn("2026-08-01T12:00:00Z", st.markdowns[-1])
         self.assertIn("Mixed", csv_text)
         self.assertIn("2026-08-01T12:00:00Z", csv_text)

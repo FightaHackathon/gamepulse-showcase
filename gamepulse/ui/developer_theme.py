@@ -114,6 +114,10 @@ def developer_css() -> str:
 .gp-developer-card-title { color: var(--gp-developer-text); font-size: 1rem; font-weight: 700; margin: 0 0 7px; }
 .gp-developer-card-meta,
 .gp-developer-card-copy { color: var(--gp-developer-muted); font-size: .82rem; line-height: 1.45; }
+.gp-developer-card-copy ul,
+.gp-developer-caution ul { margin: 8px 0 0; padding-left: 18px; }
+.gp-developer-card-copy li,
+.gp-developer-caution li { margin: 4px 0; }
 .gp-developer-creator-card { padding: 14px 16px; }
 .gp-developer-creator-header { display: grid; grid-template-columns: 54px 1fr; gap: 12px; align-items: center; }
 .gp-developer-creator-image,

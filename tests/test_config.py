@@ -1,4 +1,5 @@
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -32,6 +33,26 @@ class SettingsTests(unittest.TestCase):
         self.assertTrue(settings.twitch_enabled)
         self.assertTrue(settings.steam_enabled)
         self.assertTrue(settings.mistral_enabled)
+
+    def test_missing_streamlit_secrets_are_not_read(self):
+        class FakeStreamlit:
+            def __init__(self):
+                self.secrets_accesses = 0
+
+            @property
+            def secrets(self):
+                self.secrets_accesses += 1
+                return {}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fake_streamlit = FakeStreamlit()
+            with patch.dict(os.environ, {}, clear=True), patch.dict(
+                sys.modules, {"streamlit": fake_streamlit}
+            ):
+                settings = Settings.from_env(Path(temp_dir))
+
+        self.assertFalse(settings.steam_enabled)
+        self.assertEqual(fake_streamlit.secrets_accesses, 0)
 
     def test_streamlit_cloud_secrets_enable_steam(self):
         """Cloud deployments provide secrets through st.secrets, not os.environ."""

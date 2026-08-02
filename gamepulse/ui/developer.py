@@ -217,6 +217,7 @@ def _history_record(row: Mapping[str, object]) -> dict[str, object]:
     record["language"] = str(row.get("language") or "")
     record["source_mode"] = row.get("source_mode") or "Unknown"
     record["source_name"] = str(row.get("source_name") or "")
+    record["record_origin"] = "historical"
     record["partial_coverage"] = bool(row.get("partial_coverage"))
     record["collection_id"] = row.get("collection_id")
     return record
@@ -237,6 +238,26 @@ def _canonical_source_mode(value: object) -> str:
     if "cached" in raw or "snapshot" in raw:
         return "Cached/Snapshot"
     return "Unknown"
+
+
+def _record_origin(record: Mapping[str, object]) -> str | None:
+    value = str(record.get("record_origin") or "").strip().casefold()
+    if value in {"current", "provider", "live"}:
+        return "current"
+    if value in {"historical", "history", "persisted"}:
+        return "historical"
+    return None
+
+
+def _source_mode_for_record(record: Mapping[str, object]) -> str:
+    if _record_origin(record) == "historical":
+        return "Historical"
+    mode = _canonical_source_mode(record.get("source_mode"))
+    if mode in {"Live", "Demo", "Fallback"}:
+        return mode
+    if mode in {"Cached/Snapshot", "Manual"}:
+        return "Historical" if _record_origin(record) != "current" else "Demo"
+    return mode
 
 
 def _collection_identifier(record: Mapping[str, object]) -> str:
@@ -261,6 +282,8 @@ def _profile_from_records(
     latest = dated_records[-1] if dated_records else (ordered[-1] if ordered else {})
     observed_at = str(latest.get("observed_at")) if _parse_time(latest.get("observed_at")) is not None else None
     source_modes = tuple(dict.fromkeys(_canonical_source_mode(row.get("source_mode")) for row in ordered))
+    if any(_record_origin(row) for row in ordered):
+        source_modes = tuple(dict.fromkeys(_source_mode_for_record(row) for row in ordered))
     source_mode = source_modes[0] if len(source_modes) == 1 else "Mixed" if source_modes else "Unknown"
     source_names = tuple(dict.fromkeys(str(row.get("source_name") or "") for row in ordered if str(row.get("source_name") or "").strip()))
     source_name = "Mixed sources" if source_mode == "Mixed" else latest.get("source_name") or (source_names[0] if source_names else "")
@@ -271,6 +294,8 @@ def _profile_from_records(
         labels = ", ".join(source_names[:2]) or ", ".join(source_modes)
         suffix = " and more" if len(source_names) > 2 else ""
         provenance_parts.append(f"Mixed provenance ({', '.join(source_modes)}) across {labels}{suffix}.")
+    elif source_mode == "Historical":
+        provenance_parts.append("Historical creator observations come from persisted Twitch snapshots.")
     if len(collection_ids) > 1:
         provenance_parts.append(f"{len(collection_ids)} collections contributed.")
     if partial_coverage:
@@ -295,15 +320,9 @@ def _profile_from_records(
     languages = tuple(dict.fromkeys(str(row.get("language") or "") for row in ordered if str(row.get("language") or "").strip()))
     login = latest.get("streamer_login")
     channel_url = f"https://twitch.tv/{login}" if login else None
-    latest_tier = normalize_creator_tier(latest.get("channel_size_tier"))
-    trusted_tier = (
-        latest_tier
-        if latest_tier != "unknown" and _canonical_source_mode(latest.get("source_mode")) in {"Demo", "Manual"}
-        else None
-    )
     latest_viewers = latest.get("viewer_count")
     current_viewers = average if latest_viewers in (None, "") else latest_viewers
-    tier = trusted_tier or classify_creator_tier(current_viewers, len(ordered), viewers)
+    tier = classify_creator_tier(current_viewers, len(ordered), viewers)
     return StreamerProfile(
         streamer_id=str(streamer_id),
         categories=categories,
@@ -365,6 +384,7 @@ def _creator_data(settings: Settings, catalog: Catalog, game):
                 record["observed_at"] = snapshot.observed_at
                 record["source_mode"] = snapshot.mode
                 record["source_name"] = snapshot.source_name
+                record["record_origin"] = "current"
                 record["partial_coverage"] = bool(record.get("partial_coverage")) or bool(snapshot.partial_coverage)
                 record["collection_id"] = "|".join((snapshot.mode, snapshot.source_name, snapshot.observed_at))
                 provider_records.append(record)
@@ -450,6 +470,7 @@ def render(st, settings: Settings, catalog: Catalog, state: DemoState) -> DemoSt
         "Steam/Kaggle prepared snapshot",
         "2026-08-01",
     )
+    st.subheader("Selected game")
     render_developer_hero(st, game, "Local prepared data")
 
     comparables = catalog.comparable_games(game.steam_app_id, limit=5)
@@ -542,6 +563,18 @@ def render(st, settings: Settings, catalog: Catalog, state: DemoState) -> DemoSt
         budget_tier=budget_position.casefold(),
         promotion_objective=objective_label.casefold(),
     )
+    st.subheader("Campaign summary")
+    summary_columns = st.columns(4)
+    language_summary = ", ".join(target_languages) or "Any language"
+    tier_summary = ", ".join(preferred_tiers) or "Any tier"
+    render_signal_card(summary_columns[0], "Selected game", game.name, "Campaign target")
+    render_signal_card(summary_columns[1], "Objective", objective_label, "Promotion goal")
+    render_signal_card(summary_columns[2], "Audience filters", f"{language_summary} · {tier_summary}", "Target language and audience tier")
+    render_signal_card(summary_columns[3], "Recommendations", str(recommendation_count), "Cards to review")
+    st.caption(
+        f"Budget positioning: {budget_position} · Similar-game specialists: {'included' if include_similar else 'excluded'} · "
+        f"Selected-game history: {'required' if require_selected_history else 'optional'}."
+    )
     profiles_by_id = {profile.streamer_id: profile for profile in profiles}
     candidate_profiles = [
         profile for profile in profiles
@@ -556,6 +589,7 @@ def render(st, settings: Settings, catalog: Catalog, state: DemoState) -> DemoSt
         fits = [fit for fit in fits if _fit_language_matches(fit, tuple(target_languages))]
     recommended = fits[:recommendation_count]
 
+    st.subheader("Recommendation cards")
     if not recommended:
         st.info("No streamers match the selected campaign filters.")
         st.caption("Relax the history, language, or tier filters, or include similar-game specialists.")

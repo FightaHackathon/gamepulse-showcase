@@ -73,7 +73,7 @@ class CreatorTierTests(unittest.TestCase):
 
         self.assertEqual(profile.tier, "mid-size")
 
-    def test_explicit_demo_tier_remains_stable(self):
+    def test_demo_and_live_use_the_same_audience_tier(self):
         profile = _profile_from_records(
             "creator-1",
             [_record(5_000, source_mode="Demo", channel_size_tier="emerging")],
@@ -81,7 +81,31 @@ class CreatorTierTests(unittest.TestCase):
             (),
         )
 
-        self.assertEqual(profile.tier, "emerging")
+        self.assertEqual(profile.tier, "large")
+
+        live_profile = _profile_from_records(
+            "creator-1",
+            [_record(5_000, source_mode="Live", channel_size_tier="unknown")],
+            "Target Game",
+            (),
+        )
+
+        self.assertEqual(live_profile.tier, "large")
+        fits = rank_streamers(PromotionCampaignProfile("Target Game"), [profile, live_profile])
+        selected = filter_creator_fits_by_tier(fits, ("large",))
+        self.assertEqual(len(selected), 2)
+
+    def test_unknown_audience_does_not_drop_creator_from_unfiltered_ranking(self):
+        profile = _profile_from_records(
+            "creator-1",
+            [_record(None, source_mode="Demo", channel_size_tier="emerging")],
+            "Target Game",
+            (),
+        )
+
+        self.assertEqual(profile.tier, "unknown")
+        fits = rank_streamers(PromotionCampaignProfile("Target Game"), [profile])
+        self.assertEqual([fit.streamer_id for fit in fits], ["creator-1"])
 
     def test_persisted_history_without_tier_uses_median_viewers(self):
         profile = _profile_from_records(
