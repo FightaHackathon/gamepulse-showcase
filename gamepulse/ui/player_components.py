@@ -81,18 +81,23 @@ def render_player_hero(st, game, source_label: str = "Local prepared data") -> N
 def render_personalization(st, profile_state: PlayerProfileSession, settings: Settings, options: PreferenceOptions) -> PersonalizationAction:
     """Render the optional public Steam connector and return a user action."""
     st.subheader("Personalize your recommendations")
-    if not settings.steam_enabled:
-        st.info("Steam personalization is unavailable; manual mode is ready.")
-        st.caption("To enable public Steam profiles, add STEAM_WEB_API_KEY in Streamlit Cloud app settings under Secrets.")
-    elif profile_state.status in {"private", "rate_limited", "unavailable"}:
+    if profile_state.status in {"private", "rate_limited", "unavailable"}:
         st.warning(profile_state.message)
     elif profile_state.status == "connected":
         count = len(profile_state.owned_app_ids)
-        st.success(f"Connected · {count:,} public library games analyzed for this session.")
+        source_name = profile_state.library.source_name if profile_state.library else "Steam Web API"
+        scope = "public library games" if source_name == "Steam Web API" else "recent public games"
+        st.success(f"Connected · {count:,} {scope} analyzed for this session.")
         inferred = profile_state.preferences
         chips = [*(f"Tag: {item}" for item in inferred.preferred_tags[:4]), *(f"Genre: {item}" for item in inferred.preferred_genres[:3])]
         if chips:
             st.caption("Inferred preferences · " + " · ".join(chips))
+
+    if profile_state.status == "connected" and profile_state.library and profile_state.library.source_name != "Steam Web API":
+        st.caption("Source: Public Steam profile page; recent games only.")
+    elif profile_state.status != "connected" and not settings.steam_enabled:
+        st.info("Steam Web API key is not configured; public-profile analysis is ready and manual mode remains available.")
+        st.caption("Without a key, GamePulse reads recent games shown on the public profile page. Add STEAM_WEB_API_KEY in Streamlit Cloud Secrets for the full library.")
 
     with st.form("gp_player_steam_form", clear_on_submit=False):
         profile = st.text_input(
@@ -105,7 +110,6 @@ def render_personalization(st, profile_state: PlayerProfileSession, settings: Se
         submitted = st.form_submit_button(
             "Analyze public library",
             type="primary",
-            disabled=not settings.steam_enabled,
             use_container_width=True,
         )
     if submitted:

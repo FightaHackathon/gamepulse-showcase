@@ -33,7 +33,7 @@ The app loads `.env` from the project root automatically; never paste secrets
 into source files or commit the real `.env`.
 
 - Twitch credentials enable the live Helix provider; keep the secret private.
-- A project-owned Steam Web API key enables public-profile personalization. Keep Game Details public; never provide a Steam password or cookie.
+- A project-owned Steam Web API key enables full-library public-profile personalization. Without a key, the app can analyze recent games shown on a public Steam profile page. Keep Game Details public; never provide a Steam password or cookie.
 - Mistral is not wired into the current prototype; local review analysis remains available without it.
 
 ### Streamlit Community Cloud secrets

@@ -68,5 +68,5 @@ def analyze_public_profile(profile_input: str, provider: SteamProvider, catalog)
         library=library,
         owned_app_ids=owned_app_ids,
         preferences=preferences,
-        message="Connected to public Steam library.",
+        message=f"Connected to {library.source_name}.",
     )

@@ -20,9 +20,41 @@ class _Response:
         return json.dumps(self.payload).encode("utf-8")
 
 
+class _TextResponse:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def read(self):
+        return self.payload.encode("utf-8")
+
+
+PUBLIC_PROFILE_HTML = """
+<script>
+g_rgProfileData = {"url":"https:\/\/steamcommunity.com\/profiles\/76561199124746372\/","steamid":"76561199124746372"};
+</script>
+<div class="recent_games">
+  <div class="recent_game">
+    <div class="game_info_details">12.5 hrs on record<br>last played today</div>
+    <div class="game_name"><a href="https://steamcommunity.com/app/570">Dota 2</a></div>
+  </div>
+  <div class="recent_game">
+    <div class="game_info_details">2 hrs on record<br>last played yesterday</div>
+    <div class="game_name"><a href="https://steamcommunity.com/app/1149460">Icarus</a></div>
+  </div>
+</div>
+"""
+
+
 class SteamProviderTests(unittest.TestCase):
     def test_parse_numeric_profile_and_vanity_profile(self):
         self.assertEqual(parse_steam_profile("https://steamcommunity.com/profiles/76561198000000000"), ("76561198000000000", None))
+        self.assertEqual(parse_steam_profile("https://steamcommunity.com/profiles/76561199124746372/?tab=all"), ("76561199124746372", None))
         self.assertEqual(parse_steam_profile("https://steamcommunity.com/id/example"), (None, "example"))
 
     def test_reject_malformed_profile(self):
@@ -52,6 +84,17 @@ class SteamProviderTests(unittest.TestCase):
 
         with self.assertRaisesRegex(SteamProviderError, "rate limit"):
             SteamProvider("test-key").get_library("76561198000000000")
+
+    @patch("gamepulse.providers.steam.urllib.request.urlopen")
+    def test_public_profile_page_fallback_analyzes_recent_games_without_api_key(self, urlopen):
+        urlopen.return_value = _TextResponse(PUBLIC_PROFILE_HTML)
+
+        library = SteamProvider(None).get_library("76561199124746372")
+
+        self.assertEqual(library.steam_id, "76561199124746372")
+        self.assertEqual(library.source_name, "Public Steam profile page")
+        self.assertEqual([item["appid"] for item in library.games], [570, 1149460])
+        self.assertEqual(library.games[0]["playtime_forever"], 750)
 
 
 if __name__ == "__main__":

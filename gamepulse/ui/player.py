@@ -39,7 +39,9 @@ def render(st, settings: Settings, catalog: Catalog, state: DemoState) -> DemoSt
         profile_state = analyze_public_profile(action.profile_input, provider, catalog)
         st.session_state.player_profile_session = profile_state
         if profile_state.status == "connected":
-            st.success(f"Connected · {len(profile_state.owned_app_ids):,} public library games analyzed for this session.")
+            source_name = profile_state.library.source_name if profile_state.library else "Steam Web API"
+            scope = "public library games" if source_name == "Steam Web API" else "recent public games"
+            st.success(f"Connected · {len(profile_state.owned_app_ids):,} {scope} analyzed for this session.")
         elif profile_state.message:
             st.warning(profile_state.message)
     elif action.kind == "clear":

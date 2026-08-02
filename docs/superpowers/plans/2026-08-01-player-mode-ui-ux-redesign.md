@@ -522,7 +522,7 @@ Test these exact visible outcomes:
 
 | State | Required visible copy/action |
 |---|---|
-| Missing API key | `Steam personalization is unavailable; manual mode is ready.` |
+| Missing API key | Public-profile fallback is available for recent public games; manual mode remains ready. |
 | Private profile | `Game Details are private.` plus manual-preference controls |
 | Rate limited | `Steam is temporarily rate limited.` plus retained recommendations |
 | Empty results | `No games match all active filters.` plus `Reset filters` |

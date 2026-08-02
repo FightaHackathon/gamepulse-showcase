@@ -24,6 +24,7 @@ class _FakeStreamlit:
         self.captions = []
         self.markdowns = []
         self.buttons = []
+        self.form_submit_kwargs = []
 
     def subheader(self, value):
         self.subheader_value = value
@@ -47,6 +48,7 @@ class _FakeStreamlit:
         return value
 
     def form_submit_button(self, *_args, **_kwargs):
+        self.form_submit_kwargs.append(_kwargs)
         return False
 
     def button(self, label, **_kwargs):
@@ -66,8 +68,9 @@ class PlayerModeStateTests(unittest.TestCase):
 
         render_personalization(fake, empty_profile_session(), self._settings(False), PreferenceOptions(("RPG",), ("Action",)))
 
-        self.assertIn("Steam personalization is unavailable; manual mode is ready.", fake.infos)
+        self.assertIn("public-profile analysis is ready", " ".join(fake.infos))
         self.assertIn("STEAM_WEB_API_KEY", " ".join(fake.captions))
+        self.assertFalse(fake.form_submit_kwargs[0].get("disabled", False))
 
     def test_private_and_rate_limited_copy_is_safe(self):
         for status, message in (("private", "Game Details are private."), ("rate_limited", "Steam is temporarily rate limited.")):
