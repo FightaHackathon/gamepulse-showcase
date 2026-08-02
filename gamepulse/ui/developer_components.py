@@ -138,11 +138,11 @@ def render_comparable_card(st, comparable) -> None:
 
 def render_creator_fit_card(st, fit) -> None:
     name = _get(fit, "streamer_name") or _get(fit, "streamer_id", "Streamer")
-    reasons = " · ".join(_text(item) for item in (_get(fit, "reasons", ()) or ())[:3]) or "Based on current creator signals"
+    top_reasons = tuple(str(item) for item in (_get(fit, "reasons", ()) or ())[:3]) or ("Based on available public creator signals.",)
     limitations = _get(fit, "data_limitations", ()) or _get(fit, "cautions", ()) or ()
-    cautions = " · ".join(_text(item) for item in limitations) or "None recorded"
-    source_mode = _text(_get(fit, "data_source") or _get(fit, "source_mode"))
-    source_name = _text(_get(fit, "source_name") or _get(fit, "source_mode"))
+    limitation_items = tuple(str(item) for item in limitations) or ("No specific limitation recorded; treat this as directional evidence.",)
+    source_mode = _text(_get(fit, "source_mode") or _get(fit, "data_source"), "Unknown")
+    source_name = _text(_get(fit, "source_name"), "Not provided")
     observed_at = _text(_get(fit, "observed_at"))
     provenance_note = _get(fit, "provenance_note", "")
     profile_image = _safe_url(_get(fit, "profile_image_url"))
@@ -170,22 +170,37 @@ def render_creator_fit_card(st, fit) -> None:
         for item in (_get(fit, "similar_game_matches", ()) or ())
         if str(item).strip()
     )
-    try:
-        direct_game_match = float(components.get("category_history_fit") or 0) > 0
-    except (TypeError, ValueError):
-        direct_game_match = False
+    direct_game_matches = tuple(
+        str(item).strip()
+        for item in (_get(fit, "direct_game_matches", ()) or ())
+        if str(item).strip()
+    )
+    tier = _get(fit, "channel_tier")
+    match_basis_labels: list[str] = []
+    match_explanation_items: list[str] = []
+    if direct_game_matches:
+        match_basis_labels.append("Direct selected-game history")
+        match_explanation_items.append(
+            f'<li><strong>✓ Direct selected-game history</strong> — {html.escape(", ".join(direct_game_matches))}</li>'
+        )
     if similar_game_matches:
-        match_basis = "Direct game/category + similar-game history" if direct_game_match else "Similar-game history"
-    elif direct_game_match:
-        match_basis = "Direct game/category history"
-    else:
-        match_basis = "Other public signals"
+        match_basis_labels.append("Similar-game history (audience overlap)")
+        match_explanation_items.append(
+            f'<li><strong>✓ Similar-game audience overlap</strong> — {html.escape(", ".join(similar_game_matches))}</li>'
+        )
+    audience_value = components.get("audience_suitability")
+    audience_label = f"General audience suitability — {_percent(audience_value)} fit"
+    if tier:
+        audience_label += f" for the {_text(tier)} tier"
+    match_basis_labels.append("General audience suitability")
+    match_explanation_items.append(f"<li><strong>✓ {html.escape(audience_label)}</strong></li>")
+    match_basis = " + ".join(match_basis_labels)
+    match_explanation_markup = "".join(match_explanation_items)
     similarity_details = (
         f"Category history fit: {_percent(components.get('category_history_fit'))} · "
         f"Similar-game fit: {_percent(components.get('similar_game_fit'))}"
     )
     audience_details = f"{_percent(components.get('audience_suitability'))} suitability"
-    tier = _get(fit, "channel_tier")
     if tier:
         audience_details += f" · tier {_text(tier)}"
     similar_game_markup = ""
@@ -235,17 +250,18 @@ def render_creator_fit_card(st, fit) -> None:
         if low_confidence
         else f"Not flagged; {_text(confidence_band)} ({_percent(confidence_value)})."
     )
+    confidence_note_label = "Low confidence" if low_confidence else "Confidence note"
     markup = f"""
 <article class="gp-developer-shell gp-developer-card gp-developer-creator-card" aria-label="Promotion recommendation: {html.escape(str(name), quote=True)}">
   <div class="gp-developer-creator-header"><div>{image_markup}</div><div><div class="gp-developer-card-title">{_text(name)}</div><div class="gp-developer-card-meta"><span class="gp-developer-fit-score">Promotion Fit Score {float(_get(fit, 'score', 0)):.1f}/100</span> · {_text(_get(fit, 'score_band'))}</div><div class="gp-developer-confidence"><strong>Confidence:</strong> Confidence level: {_percent(_get(fit, 'confidence_score'))} · {_text(_get(fit, 'confidence_band'))}</div></div></div>
   <div class="gp-developer-creator-metrics"><span>Average viewers: {_number(_get(fit, 'average_viewers'))}</span><span>Median viewers: {_number(_get(fit, 'median_viewers'))}</span><span>Peak viewers: {_number(_get(fit, 'peak_viewers'))}</span><span>Primary category: {_text(_get(fit, 'primary_category'))}</span><span>Category share: {_percent(_get(fit, 'primary_category_share'))}</span><span>Language: {_text(_get(fit, 'language'))}</span><span>Tier: {_text(_get(fit, 'channel_tier'))}</span><span>Growth: {_percent(_get(fit, 'seven_day_growth'), 'Unavailable - insufficient history')}</span><span>Growth interval: {_number(_get(fit, 'seven_day_growth_interval_hours'), 'Unavailable')}</span><span>Growth baseline: {_text(_get(fit, 'seven_day_growth_baseline_at'), 'Unavailable - insufficient history')}</span></div>
   <div class="gp-developer-component-chips">{component_markup}</div>
+  <div class="gp-developer-card-copy"><strong>Why this streamer appears:</strong><ul>{match_explanation_markup}</ul></div>
   <div class="gp-developer-card-copy"><strong>Match basis:</strong> {match_basis}</div>
   {similar_game_markup}
-  <div class="gp-developer-card-copy"><strong>Reasons:</strong><div><strong>Recommended because:</strong><ul><li><strong>Game/category similarity:</strong> {similarity_details}</li><li><strong>Audience suitability:</strong> {audience_details}</li><li><strong>Available viewer evidence:</strong> {viewer_evidence}</li></ul></div></div>
-  <div class="gp-developer-card-copy"><strong>Strongest reasons:</strong> {reasons}</div>
-  <div class="gp-developer-caution"><strong>Cautions:</strong><div><strong>Limitations:</strong><ul><li><strong>Missing history:</strong> {missing_history_details}</li><li><strong>Partial data:</strong> {partial_details}</li><li><strong>Low confidence:</strong> {low_confidence_details}</li></ul><div><strong>Data limitations:</strong> {cautions}</div></div></div>
-  <div class="gp-developer-card-meta">Data source: {source_mode} · {source_name} · Observation time: {observed_at} · {twitch_link}</div>
+  <div class="gp-developer-card-copy"><strong>Reasons:</strong> <strong>Top reasons:</strong><div><strong>Recommended because:</strong></div><ul>{''.join(f'<li>✓ {html.escape(reason)}</li>' for reason in top_reasons)}</ul><div>Game/category similarity: {similarity_details} · Audience suitability: {audience_details} · Available viewer evidence: {viewer_evidence}</div></div>
+  <div class="gp-developer-caution"><strong>Cautions:</strong> <strong>Limitations:</strong> <strong>Data limitations:</strong><ul>{''.join(f'<li>{html.escape(item)}</li>' for item in limitation_items)}</ul><div><strong>Evidence note:</strong> Recommendations are directional public-signal evidence, not guaranteed results.</div><div><strong>Missing history:</strong> {missing_history_details} · <strong>Partial data:</strong> {partial_details} · <strong>{confidence_note_label}:</strong> {low_confidence_details}</div></div>
+  <div class="gp-developer-card-meta">Data source: {source_mode} · {source_name} · Observation date: {observed_at} · {twitch_link}</div>
   {f'<div class="gp-developer-card-meta">Provenance: {_text(provenance_note)}</div>' if provenance_note else ''}
 </article>
 """

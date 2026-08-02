@@ -139,7 +139,7 @@ class DeveloperComponentTests(unittest.TestCase):
 
         markup = st.markdowns[-1][0]
         self.assertIn("Data source: Historical", markup)
-        self.assertIn("Observation time: 2025-01-01T00:00:00Z", markup)
+        self.assertIn("Observation date: 2025-01-01T00:00:00Z", markup)
         self.assertIn("Confidence level: 38%", markup)
         self.assertIn("Data limitations:", markup)
         self.assertIn("Historical observations may not reflect current creator activity.", markup)
@@ -215,6 +215,36 @@ class DeveloperComponentTests(unittest.TestCase):
         self.assertIn("audience overlap", markup)
         self.assertIn("related audience", markup)
         self.assertIn("Audience suitability: 90%", markup)
+
+    def test_creator_fit_card_uses_plain_language_match_labels_and_top_reasons(self):
+        st = FakeStreamlit()
+        fit = SimpleNamespace(
+            streamer_id="creator-1",
+            streamer_name="Creator One",
+            score=61.0,
+            score_band="Promising fit",
+            confidence_score=0.62,
+            confidence_band="Moderate confidence",
+            direct_game_matches=("Target Game",),
+            similar_game_matches=("Similar Game",),
+            reasons=("matches Target Game category", "audience size fits the campaign's preferred streamer range"),
+            cautions=("This is directional public-signal fit, not a sales or conversion prediction.",),
+            components=SimpleNamespace(values={"audience_suitability": 0.9}),
+            source_mode="Demo",
+            source_name="Demo fixture",
+            observed_at="2026-08-01T00:00:00Z",
+        )
+
+        render_creator_fit_card(st, fit)
+
+        markup = st.markdowns[-1][0]
+        self.assertIn("Direct selected-game history", markup)
+        self.assertIn("Similar-game audience overlap", markup)
+        self.assertIn("General audience suitability", markup)
+        self.assertIn("Top reasons", markup)
+        self.assertIn("Limitations", markup)
+        self.assertIn("Data source", markup)
+        self.assertIn("not a sales or conversion prediction", markup)
 
     def test_creator_comparison_shows_two_or_three_fit_rows(self):
         st = FakeStreamlit()

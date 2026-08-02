@@ -239,6 +239,7 @@ class StreamerFit:
     data_source: str = ""
     data_limitations: tuple[str, ...] = ()
     similar_game_matches: tuple[str, ...] = ()
+    direct_game_matches: tuple[str, ...] = ()
 
     @property
     def name(self) -> str:
@@ -309,6 +310,21 @@ def _campaign(game: PromotionCampaignProfile | Mapping[str, object]) -> Promotio
 
 def _history_values(streamer: StreamerProfile) -> tuple[str, ...]:
     return streamer.category_history or tuple(str(value) for value in streamer.categories)
+
+
+def _direct_game_matches(campaign: PromotionCampaignProfile, streamer: StreamerProfile) -> tuple[str, ...]:
+    target = _normalized(campaign.game_name)
+    if not target:
+        return ()
+    matches: list[str] = []
+    seen: set[str] = set()
+    for value in _history_values(streamer):
+        display = str(value).strip()
+        normalized = _normalized(display)
+        if normalized == target and normalized not in seen:
+            seen.add(normalized)
+            matches.append(display)
+    return tuple(matches)
 
 
 def _category_history_fit(campaign: PromotionCampaignProfile, streamer: StreamerProfile) -> tuple[float, bool, int]:
@@ -580,6 +596,7 @@ def rank_streamers(
         if tier and streamer.tier.casefold() != str(tier).casefold():
             continue
         category_fit, category_available, category_overlap = _category_history_fit(campaign, streamer)
+        direct_game_matches = _direct_game_matches(campaign, streamer)
         similar_game_matches = _similar_game_matches(campaign, streamer)
         similar_fit, similar_available = _similar_game_fit(campaign, streamer)
         audience_fit, audience_available = _audience_suitability(campaign, streamer)
@@ -644,6 +661,7 @@ def rank_streamers(
             data_source=streamer.source_mode,
             data_limitations=limitations,
             similar_game_matches=similar_game_matches,
+            direct_game_matches=direct_game_matches,
         ))
     output.sort(key=lambda item: (-item.score, -item.confidence_score, item.streamer_name.casefold(), item.streamer_id))
     return output

@@ -83,6 +83,27 @@ class StreamerFitTests(unittest.TestCase):
         self.assertEqual(by_id["similar"].similar_game_matches, ("Stardew Valley",))
         self.assertEqual(by_id["other"].similar_game_matches, ())
 
+    def test_fit_exposes_direct_selected_game_history_separately(self):
+        campaign = PromotionCampaignProfile("New Game", similar_games=("Stardew Valley",))
+        streamers = [
+            StreamerProfile(
+                "direct", {"variety"}, "en", "mid-size", 3_000,
+                category_history=("New Game",), median_viewers=2_500,
+                peak_viewers=6_000, observation_count=8,
+            ),
+            StreamerProfile(
+                "similar", {"variety"}, "en", "mid-size", 3_000,
+                category_history=("Stardew Valley",), similar_game_history=("Stardew Valley",),
+                median_viewers=2_500, peak_viewers=6_000, observation_count=8,
+            ),
+        ]
+
+        fits = {item.streamer_id: item for item in rank_streamers(campaign, streamers)}
+
+        self.assertEqual(fits["direct"].direct_game_matches, ("New Game",))
+        self.assertEqual(fits["similar"].direct_game_matches, ())
+        self.assertEqual(fits["similar"].similar_game_matches, ("Stardew Valley",))
+
     def test_large_creator_does_not_automatically_win(self):
         campaign = PromotionCampaignProfile(
             "Indie Game", genres=("indie",), preferred_streamer_tiers=("emerging",),

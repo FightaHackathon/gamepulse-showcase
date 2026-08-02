@@ -564,17 +564,21 @@ def render(st, settings: Settings, catalog: Catalog, state: DemoState) -> DemoSt
         promotion_objective=objective_label.casefold(),
     )
     st.subheader("Campaign summary")
-    summary_columns = st.columns(4)
     language_summary = ", ".join(target_languages) or "Any language"
     tier_summary = ", ".join(preferred_tiers) or "Any tier"
-    render_signal_card(summary_columns[0], "Selected game", game.name, "Campaign target")
-    render_signal_card(summary_columns[1], "Objective", objective_label, "Promotion goal")
-    render_signal_card(summary_columns[2], "Audience filters", f"{language_summary} · {tier_summary}", "Target language and audience tier")
-    render_signal_card(summary_columns[3], "Recommendations", str(recommendation_count), "Cards to review")
-    st.caption(
-        f"Budget positioning: {budget_position} · Similar-game specialists: {'included' if include_similar else 'excluded'} · "
-        f"Selected-game history: {'required' if require_selected_history else 'optional'}."
+    summary_fields = (
+        ("Selected game", game.name, "Campaign target"),
+        ("Promotion objective", objective_label, "Promotion goal"),
+        ("Target language", language_summary, "Creator language filter"),
+        ("Preferred creator tier", tier_summary, "Directional audience-size band"),
+        ("Similar-game option", "Included" if include_similar else "Excluded", "Similar-game specialists"),
+        ("Budget positioning", budget_position, "Context only; no sponsorship prices"),
+        ("Recommendations", str(recommendation_count), "Cards to review"),
     )
+    summary_columns = st.columns(3)
+    for index, (label, value, detail) in enumerate(summary_fields):
+        render_signal_card(summary_columns[index % len(summary_columns)], label, value, detail)
+    st.caption(f"Selected-game history: {'required' if require_selected_history else 'optional'}.")
     profiles_by_id = {profile.streamer_id: profile for profile in profiles}
     candidate_profiles = [
         profile for profile in profiles
