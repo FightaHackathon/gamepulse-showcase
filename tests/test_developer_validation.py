@@ -1,6 +1,7 @@
 import unittest
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from streamlit.testing.v1 import AppTest
 
@@ -106,6 +107,33 @@ class DeveloperValidationTests(unittest.TestCase):
         render_creator_comparison(st, filtered)
 
         self.assertEqual(st.infos, ["Select two or three recommended streamers to compare them."])
+
+    def test_developer_mode_empty_recommendations_explain_cause_and_next_action(self):
+        app = AppTest.from_file("app.py", default_timeout=20).run()
+        app.radio[0].set_value("Developer").run()
+
+        tiers = next(item for item in app.multiselect if item.label == "Preferred streamer tiers")
+        tiers.set_value(["large"]).run()
+
+        self.assertIn("No streamers match the selected campaign filters.", [item.value for item in app.info])
+        captions = "\n".join(item.value for item in app.caption)
+        self.assertIn("current history, language, or tier filters removed every candidate", captions)
+        self.assertIn("Next action: relax a filter or include similar-game specialists.", captions)
+
+    def test_developer_mode_error_explains_cause_and_next_action(self):
+        with patch(
+            "gamepulse.ui.developer._creator_data_with_error",
+            return_value=(None, [], (), {}, RuntimeError("fixture failure")),
+        ):
+            app = AppTest.from_file("app.py", default_timeout=20).run()
+            app.radio[0].set_value("Developer").run()
+
+        self.assertFalse(app.exception)
+        errors = "\n".join(item.value for item in app.error)
+        self.assertIn("could not load streamer evidence", errors)
+        self.assertIn("because fixture failure", errors)
+        self.assertIn("Next action: check the Twitch snapshot or credentials and refresh.", errors)
+        self.assertIn("Market evidence remains available below.", errors)
 
     def test_developer_mode_explains_empty_recommendation_filters(self):
         app = AppTest.from_file("app.py", default_timeout=20).run()

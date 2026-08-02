@@ -64,14 +64,17 @@ class DeveloperModeUITests(unittest.TestCase):
         app.radio[0].set_value("Developer").run()
 
         subheaders = [item.value for item in app.subheader]
+        section_order = ["Campaign Setup", "Recommended Streamers", "Comparison", "Data Limitations"]
+        section_positions = [subheaders.index(section) for section in section_order]
+        self.assertEqual(section_positions, sorted(section_positions))
         self.assertIn("Selected game", subheaders)
         self.assertIn("Campaign summary", subheaders)
         self.assertIn("Recommendation cards", subheaders)
 
         markdown = "\n".join(item.value for item in app.markdown)
         self.assertIn("Selected game", markdown)
-        self.assertIn("Reasons:", markdown)
-        self.assertIn("Cautions:", markdown)
+        self.assertIn("Top reasons", markdown)
+        self.assertIn("Limitations: Data limitations:", markdown)
         self.assertIn("Confidence:", markdown)
 
 

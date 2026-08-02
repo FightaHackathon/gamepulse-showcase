@@ -364,7 +364,10 @@ def render(st, settings: Settings, catalog: Catalog, state: DemoState) -> DemoSt
                 settings.twitch_request_timeout_seconds,
             )
     except (OSError, RuntimeError, ValueError, KeyError, sqlite3.Error) as exc:
-        st.error(f"Twitch data is temporarily unavailable: {exc}")
+        st.error("Twitch category data is temporarily unavailable, so GamePulse cannot rank opportunities right now.")
+        st.info("Why this happened: the live request or prepared snapshot could not be read. Next action: retry shortly or confirm the local snapshot and Twitch credentials.")
+        with st.expander("Technical details"):
+            st.code(str(exc))
         render_opportunity_empty_state(st)
         return state
 
@@ -533,5 +536,8 @@ def render(st, settings: Settings, catalog: Catalog, state: DemoState) -> DemoSt
                     )
                 render_creator_landscape(st, creator_snapshot)
             except (OSError, RuntimeError, ValueError, KeyError, sqlite3.Error) as exc:
-                st.info(f"Creator data is temporarily unavailable: {exc}")
+                st.warning("Creator data is temporarily unavailable, so the landscape cannot be shown for this category.")
+                st.caption("Why this happened: the creator snapshot could not be read. Next action: retry shortly or choose another category.")
+                with st.expander("Technical details"):
+                    st.code(str(exc))
     return state

@@ -46,7 +46,8 @@ def render(st, settings: Settings, catalog: Catalog, state: DemoState) -> DemoSt
             scope = "public library games" if source_name == "Steam Web API" or (profile_state.library and profile_state.library.complete) else "recent public games"
             st.success(f"Connected · {len(profile_state.owned_app_ids):,} {scope} analyzed for this session.")
         elif profile_state.message:
-            st.warning(profile_state.message)
+            st.warning(f"We could not use that public Steam profile for personalization. {profile_state.message}")
+            st.caption("Next action: check that the profile is public, then try again. You can still use the preference filters below.")
     elif action.kind == "clear":
         profile_state = empty_profile_session()
         st.session_state.player_profile_session = profile_state
@@ -103,7 +104,8 @@ def render(st, settings: Settings, catalog: Catalog, state: DemoState) -> DemoSt
         try:
             details = get_game_details(settings.database_path, int(detail_app_id), review_limit=20)
         except KeyError:
-            st.warning("That game is no longer available in the prepared catalogue.")
+            st.warning("That game is no longer available in the prepared catalogue, so its detail view cannot be shown.")
+            st.caption("Next action: choose another recommendation from the current list.")
             st.session_state.pop("gp_player_detail_app_id", None)
         else:
             render_game_details(st, details)

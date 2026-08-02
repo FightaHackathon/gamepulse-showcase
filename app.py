@@ -22,12 +22,14 @@ def run() -> None:
     root = Path(__file__).resolve().parent
     settings = Settings.from_env(root)
     if not settings.database_path.exists():
-        st.error("Prototype database is missing. Build it with scripts/build_prototype_database.py first.")
+        st.error("GamePulse cannot start because its prepared demo data is missing.")
+        st.info("Why this happened: the local prototype database has not been created or is not in the expected location. Next action: run scripts/build_prototype_database.py, then refresh this page.")
         st.stop()
     catalog = Catalog(settings.database_path)
     candidates = catalog.rank_demo_candidates(1)
     if not candidates:
-        st.error("No suitable curated game exists in the prototype database.")
+        st.error("GamePulse cannot start because the prepared demo data has no game ready to show.")
+        st.info("Why this happened: the local catalogue is empty or lacks a curated demo candidate. Next action: rebuild the prototype database, then refresh this page.")
         st.stop()
     selected_app_id = settings.demo_selected_app_id or candidates[0].steam_app_id
     try:

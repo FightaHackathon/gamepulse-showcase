@@ -363,13 +363,13 @@ def _related_names(catalog: Catalog, game, trends: list[Any]) -> tuple[str, ...]
     return tuple(dict.fromkeys(matched))
 
 
-def _creator_data(settings: Settings, catalog: Catalog, game):
+def _creator_data_with_error(settings: Settings, catalog: Catalog, game):
     args = _provider_args(settings)
     try:
         trend_snapshot = _cached_game_trends(*args)
         target_category = find_matching_opportunity(trend_snapshot.data, game.name)
         if target_category is None:
-            return None, [], (), {}
+            return None, [], (), {}, None
         similar_names = _related_names(catalog, game, trend_snapshot.data)
         related_ids = [str(target_category.game_id)] + [
             str(trend.game_id) for trend in trend_snapshot.data
@@ -419,9 +419,15 @@ def _creator_data(settings: Settings, catalog: Catalog, game):
         )
         baseline_profiles = [profile for profile in profiles if _fit_has_selected_history(profile, game.name)]
         baseline_fits = rank_streamers(baseline_campaign, baseline_profiles)
-        return target_snapshot, profiles, similar_names, {fit.streamer_id: fit for fit in baseline_fits}
-    except (OSError, RuntimeError, ValueError, KeyError, sqlite3.Error):
-        return None, [], (), {}
+        return target_snapshot, profiles, similar_names, {fit.streamer_id: fit for fit in baseline_fits}, None
+    except (OSError, RuntimeError, ValueError, KeyError, sqlite3.Error) as exc:
+        return None, [], (), {}, exc
+
+
+def _creator_data(settings: Settings, catalog: Catalog, game):
+    """Keep the legacy four-value helper contract for non-UI callers."""
+
+    return _creator_data_with_error(settings, catalog, game)[:4]
 
 
 def _language_options(profiles: list[StreamerProfile]) -> list[str]:
@@ -470,9 +476,6 @@ def render(st, settings: Settings, catalog: Catalog, state: DemoState) -> DemoSt
         "Steam/Kaggle prepared snapshot",
         "2026-08-01",
     )
-    st.subheader("Selected game")
-    render_developer_hero(st, game, "Local prepared data")
-
     comparables = catalog.comparable_games(game.steam_app_id, limit=5)
     comparable_records = [
         {"name": item.name, "price_usd": item.price_usd, "review_score": item.review_score, "owners_high": item.owners_high}
@@ -481,7 +484,7 @@ def render(st, settings: Settings, catalog: Catalog, state: DemoState) -> DemoSt
     analysis = analyze_market(snapshot, comparable_records)
     review_analysis = analyze_reviews(settings.database_path, game.steam_app_id)
     forecast = forecast_review_activity(daily_counts_for_game(settings.database_path, game.steam_app_id))
-    stream_snapshot, profiles, similar_names, baseline_fits = _creator_data(settings, catalog, game)
+    stream_snapshot, profiles, similar_names, baseline_fits, creator_error = _creator_data_with_error(settings, catalog, game)
     opportunity = analyze_developer_opportunity(
         snapshot,
         review_analysis,
@@ -491,48 +494,10 @@ def render(st, settings: Settings, catalog: Catalog, state: DemoState) -> DemoSt
         creator_scores=tuple(fit.score for fit in baseline_fits.values()),
     )
 
-    st.subheader("Opportunity score")
-    render_opportunity_summary(st, opportunity)
+    st.subheader("Campaign Setup")
+    st.subheader("Selected game")
+    render_developer_hero(st, game, "Local prepared data")
 
-    st.subheader("Public market signals")
-    signal_columns = st.columns(3)
-    render_signal_card(signal_columns[0], "Estimated owners", _owner_label(snapshot), "Public estimate; not a verified download count")
-    render_signal_card(signal_columns[1], _player_metric_label(snapshot), f"{snapshot.peak_ccu:,}" if snapshot.peak_ccu else "Unavailable", "Observed concurrent players; current or peak depends on source")
-    render_signal_card(signal_columns[2], "Gross scenario", _gross_label(analysis), _gross_detail(snapshot))
-    st.caption(analysis.disclaimer)
-    st.caption(f"Source: {snapshot.source_mode} · {snapshot.source_name} · observed {snapshot.observed_at} · confidence {snapshot.confidence}")
-
-    st.subheader("Comparable games")
-    if analysis.comparable_games:
-        comparable_columns = st.columns(2)
-        for index, comparable in enumerate(comparables):
-            render_comparable_card(comparable_columns[index % 2], comparable)
-    else:
-        st.info("No comparable games were found from shared catalog tags or genres.")
-
-    st.subheader("Review themes")
-    st.write(f"{review_analysis.review_count:,} reviews analyzed · {review_analysis.positive_ratio:.1%} recommended")
-    st.caption("Positive themes: " + (", ".join(review_analysis.positive_themes) or "Not enough data"))
-    st.caption("Negative themes: " + (", ".join(review_analysis.negative_themes) or "Not enough data"))
-
-    st.subheader("30-day interest forecast")
-    forecast_columns = st.columns(2)
-    render_signal_card(forecast_columns[0], "Expected new reviews", f"{forecast.low:,}–{forecast.high:,}", f"Central estimate {forecast.expected:,} over {forecast.horizon_days} days")
-    render_signal_card(forecast_columns[1], "Forecast baseline", forecast.method, "Review activity only; not a sales or download forecast")
-    st.caption(f"Method: {forecast.method}; based on collected review activity, not verified sales or downloads.")
-
-    st.subheader("Streamer fit shortlist")
-    if stream_snapshot is None:
-        st.info("The selected game is not present in the current Twitch category snapshot.")
-        return state
-
-    st.caption(f"Source: {stream_snapshot.mode} · {stream_snapshot.source_name} · observed {stream_snapshot.observed_at}")
-    if not profiles:
-        st.info("No creator observations are available for this category.")
-        return state
-
-    st.caption("Promotion fit is directional public-signal evidence. Budget positioning is context only; no sponsorship prices are estimated.")
-    st.caption("Creator tiers are directional audience-size bands based on viewers, not sponsorship-price bands.")
     controls = st.columns(2)
     with controls[0]:
         objective_label = st.selectbox("Promotion objective", OBJECTIVES, key="developer_promotion_objective")
@@ -550,7 +515,7 @@ def render(st, settings: Settings, catalog: Catalog, state: DemoState) -> DemoSt
         recommendation_count = st.slider("Recommendation count", min_value=1, max_value=10, value=6, key="developer_recommendation_count")
         require_selected_history = st.checkbox("Require selected-game history", value=False, key="developer_require_selected_history")
         include_similar = st.checkbox("Include similar-game specialists", value=True, key="developer_include_similar")
-        st.caption(f"Objective: {objective_label} · Budget positioning: {budget_position} · No sponsorship prices are generated.")
+        st.caption(f"Objective: {objective_label} - Budget positioning: {budget_position} - No sponsorship prices are generated.")
 
     campaign = PromotionCampaignProfile(
         game_name=game.name,
@@ -579,6 +544,29 @@ def render(st, settings: Settings, catalog: Catalog, state: DemoState) -> DemoSt
     for index, (label, value, detail) in enumerate(summary_fields):
         render_signal_card(summary_columns[index % len(summary_columns)], label, value, detail)
     st.caption(f"Selected-game history: {'required' if require_selected_history else 'optional'}.")
+
+    st.subheader("Recommended Streamers")
+    st.subheader("Streamer fit shortlist")
+    st.caption("Recommendations prioritize identity, Promotion Fit score, match type, confidence, and the top reasons. Open supporting evidence for detail.")
+    if creator_error is not None:
+        reason = str(creator_error).strip() or type(creator_error).__name__
+        st.error(
+            f"Developer Mode could not load streamer evidence because {reason}. "
+            "Next action: check the Twitch snapshot or credentials and refresh. Market evidence remains available below."
+        )
+    elif stream_snapshot is None:
+        st.info(
+            "No streamer recommendations are available because the selected game is not present in the current Twitch category snapshot. "
+            "Next action: import a snapshot containing this game or connect Twitch credentials, then refresh."
+        )
+    elif not profiles:
+        st.info(
+            "No streamer recommendations are available because the category snapshot contains no public creator observations. "
+            "Next action: refresh the snapshot or try again when the category has active streams."
+        )
+    else:
+        st.caption(f"Source: {stream_snapshot.mode} - {stream_snapshot.source_name} - observed {stream_snapshot.observed_at}")
+
     profiles_by_id = {profile.streamer_id: profile for profile in profiles}
     candidate_profiles = [
         profile for profile in profiles
@@ -596,30 +584,85 @@ def render(st, settings: Settings, catalog: Catalog, state: DemoState) -> DemoSt
     st.subheader("Recommendation cards")
     if not recommended:
         st.info("No streamers match the selected campaign filters.")
-        st.caption("Relax the history, language, or tier filters, or include similar-game specialists.")
-        return state
+        st.caption("No cards are shown because the current history, language, or tier filters removed every candidate. Next action: relax a filter or include similar-game specialists.")
+    else:
+        creator_columns = st.columns(2)
+        for index, fit in enumerate(recommended):
+            with creator_columns[index % 2]:
+                render_creator_fit_card(st, fit)
+        st.download_button(
+            "Download streamer recommendations CSV",
+            data=creator_fits_csv(recommended),
+            file_name="gamepulse_streamer_recommendations.csv",
+            mime="text/csv",
+            key="developer_streamer_csv",
+        )
 
-    creator_columns = st.columns(2)
-    for index, fit in enumerate(recommended):
-        with creator_columns[index % 2]:
-            render_creator_fit_card(st, fit)
-
-    compare_options = [fit.streamer_id for fit in recommended]
-    selected_compare_ids = st.multiselect(
-        "Compare recommended streamers",
-        compare_options,
-        format_func=lambda value: next((fit.streamer_name for fit in recommended if fit.streamer_id == value), value),
-        key="developer_compare_streamers",
-        help="Choose two or three profiles for a side-by-side component comparison.",
-    )
-    compared = [fit for fit in recommended if fit.streamer_id in selected_compare_ids][:3]
+    st.subheader("Comparison")
+    if recommended:
+        compare_options = [fit.streamer_id for fit in recommended]
+        selected_compare_ids = st.multiselect(
+            "Compare recommended streamers",
+            compare_options,
+            format_func=lambda value: next((fit.streamer_name for fit in recommended if fit.streamer_id == value), value),
+            key="developer_compare_streamers",
+            help="Choose two or three profiles for a side-by-side component comparison.",
+        )
+        compared = [fit for fit in recommended if fit.streamer_id in selected_compare_ids][:3]
+    else:
+        compared = []
     render_creator_comparison(st, compared)
 
-    st.download_button(
-        "Download streamer recommendations CSV",
-        data=creator_fits_csv(recommended),
-        file_name="gamepulse_streamer_recommendations.csv",
-        mime="text/csv",
-        key="developer_streamer_csv",
+    st.subheader("Data Limitations")
+    st.markdown(
+        """
+<div class="gp-developer-limitations">
+  <strong>How to use this evidence</strong>
+  <ul>
+    <li>Promotion Fit and confidence are directional public-signal evidence, not guaranteed reach, sales, or conversion.</li>
+    <li>Twitch values represent observed public snapshots and may not cover every channel or current audience change.</li>
+    <li>Audience metrics, history, component values, and source metadata stay inside each card's supporting-evidence disclosure.</li>
+  </ul>
+</div>
+""",
+        unsafe_allow_html=True,
     )
+    if stream_snapshot is not None and stream_snapshot.partial_coverage:
+        st.caption("The current creator snapshot is marked as partial coverage; treat absence as inconclusive.")
+    else:
+        st.caption("Open a card's supporting evidence disclosure for per-recommendation limitations and provenance.")
+
+    with st.expander("Supporting market analysis", expanded=False):
+        st.subheader("Opportunity score")
+        render_opportunity_summary(st, opportunity)
+
+        st.subheader("Public market signals")
+        signal_columns = st.columns(3)
+        render_signal_card(signal_columns[0], "Estimated owners", _owner_label(snapshot), "Public estimate; not a verified download count")
+        render_signal_card(signal_columns[1], _player_metric_label(snapshot), f"{snapshot.peak_ccu:,}" if snapshot.peak_ccu else "Unavailable", "Observed concurrent players; current or peak depends on source")
+        render_signal_card(signal_columns[2], "Gross scenario", _gross_label(analysis), _gross_detail(snapshot))
+        st.caption(analysis.disclaimer)
+        st.caption(f"Source: {snapshot.source_mode} - {snapshot.source_name} - observed {snapshot.observed_at} - confidence {snapshot.confidence}")
+
+        st.subheader("Comparable games")
+        if analysis.comparable_games:
+            comparable_columns = st.columns(2)
+            for index, comparable in enumerate(comparables):
+                render_comparable_card(comparable_columns[index % 2], comparable)
+        else:
+            st.info("No comparable games were found from shared catalog tags or genres. Next action: review the selected game's tags or add comparable catalog data.")
+
+        st.subheader("Review themes")
+        st.write(f"{review_analysis.review_count:,} reviews analyzed - {review_analysis.positive_ratio:.1%} recommended")
+        st.caption("Positive themes: " + (", ".join(review_analysis.positive_themes) or "Not enough data"))
+        st.caption("Negative themes: " + (", ".join(review_analysis.negative_themes) or "Not enough data"))
+
+        st.subheader("30-day interest forecast")
+        forecast_columns = st.columns(2)
+        render_signal_card(forecast_columns[0], "Expected new reviews", f"{forecast.low:,}-{forecast.high:,}", f"Central estimate {forecast.expected:,} over {forecast.horizon_days} days")
+        render_signal_card(forecast_columns[1], "Forecast baseline", forecast.method, "Review activity only; not a sales or download forecast")
+        st.caption(f"Method: {forecast.method}; based on collected review activity, not verified sales or downloads.")
+
     return state
+
+

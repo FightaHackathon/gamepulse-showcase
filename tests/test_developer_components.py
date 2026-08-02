@@ -246,6 +246,48 @@ class DeveloperComponentTests(unittest.TestCase):
         self.assertIn("Data source", markup)
         self.assertIn("not a sales or conversion prediction", markup)
 
+    def test_creator_fit_card_exposes_exact_match_type_reasons_confidence_and_metadata(self):
+        fixtures = (
+            ("direct_game_matches", ("Target Game",), "Direct Game Match"),
+            ("similar_game_matches", ("Similar Game",), "Similar Game Specialist"),
+            ("audience_only", (), "Audience Similarity Match"),
+        )
+
+        for fixture_name, matches, expected_match_type in fixtures:
+            with self.subTest(fixture_name=fixture_name):
+                st = FakeStreamlit()
+                fit_values = dict(
+                    streamer_id="creator-1",
+                    streamer_name="Creator One",
+                    score=61.0,
+                    score_band="Promising fit",
+                    confidence_score=0.62,
+                    confidence_band="Moderate confidence",
+                    reasons=("matches the campaign audience",),
+                    cautions=("Directional public-signal evidence only.",),
+                    source_mode="Demo",
+                    source_name="Demo fixture",
+                    observed_at="2026-08-01T00:00:00Z",
+                    components=SimpleNamespace(values={"audience_suitability": 0.9}),
+                )
+                if fixture_name == "audience_only":
+                    fit_values["direct_game_matches"] = ()
+                    fit_values["similar_game_matches"] = ()
+                else:
+                    fit_values[fixture_name] = matches
+
+                render_creator_fit_card(st, SimpleNamespace(**fit_values))
+
+                markup = st.markdowns[-1][0]
+                self.assertIn(f"<strong>{expected_match_type}</strong>", markup)
+                self.assertIn("Recommended because:", markup)
+                self.assertIn("matches the campaign audience", markup)
+                self.assertIn("Confidence level: 62%", markup)
+                self.assertIn("Data limitations:", markup)
+                self.assertIn("Directional public-signal evidence only.", markup)
+                self.assertIn("Data source: Demo - Demo fixture", markup)
+                self.assertIn("Observation date: 2026-08-01T00:00:00Z", markup)
+
     def test_creator_comparison_shows_two_or_three_fit_rows(self):
         st = FakeStreamlit()
         fits = [
