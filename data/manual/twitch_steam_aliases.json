@@ -1,0 +1,13 @@
+{
+  "aliases": {
+    "CS2": {
+      "steam_app_id": 730,
+      "steam_name": "Counter-Strike 2"
+    },
+    "PUBG": {
+      "steam_app_id": 578080,
+      "steam_name": "PUBG: BATTLEGROUNDS"
+    }
+  },
+  "mappings": []
+}

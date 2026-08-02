@@ -1,4 +1,5 @@
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -33,6 +34,26 @@ class SettingsTests(unittest.TestCase):
         self.assertTrue(settings.steam_enabled)
         self.assertTrue(settings.mistral_enabled)
 
+    def test_missing_streamlit_secrets_are_not_read(self):
+        class FakeStreamlit:
+            def __init__(self):
+                self.secrets_accesses = 0
+
+            @property
+            def secrets(self):
+                self.secrets_accesses += 1
+                return {}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fake_streamlit = FakeStreamlit()
+            with patch.dict(os.environ, {}, clear=True), patch.dict(
+                sys.modules, {"streamlit": fake_streamlit}
+            ):
+                settings = Settings.from_env(Path(temp_dir))
+
+        self.assertFalse(settings.steam_enabled)
+        self.assertEqual(fake_streamlit.secrets_accesses, 0)
+
     def test_streamlit_cloud_secrets_enable_steam(self):
         """Cloud deployments provide secrets through st.secrets, not os.environ."""
         import streamlit as st
@@ -54,6 +75,42 @@ class SettingsTests(unittest.TestCase):
                 settings = Settings.from_env(root)
         self.assertEqual(settings.twitch_client_id, "from-dotenv")
         self.assertTrue(settings.twitch_enabled)
+
+    def test_twitch_collection_settings_accept_bounded_values(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            values = {
+                "TWITCH_MAX_STREAM_PAGES": "4",
+                "TWITCH_REQUEST_TIMEOUT_SECONDS": "7.5",
+            }
+            with patch.dict(os.environ, values, clear=True):
+                settings = Settings.from_env(Path(temp_dir))
+
+        self.assertEqual(settings.twitch_max_stream_pages, 4)
+        self.assertEqual(settings.twitch_request_timeout_seconds, 7.5)
+
+    def test_invalid_twitch_collection_settings_use_safe_defaults(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            values = {
+                "TWITCH_MAX_STREAM_PAGES": "not-a-number",
+                "TWITCH_REQUEST_TIMEOUT_SECONDS": "-10",
+            }
+            with patch.dict(os.environ, values, clear=True):
+                settings = Settings.from_env(Path(temp_dir))
+
+        self.assertEqual(settings.twitch_max_stream_pages, 3)
+        self.assertEqual(settings.twitch_request_timeout_seconds, 15.0)
+
+    def test_demo_config_exposes_curated_game_id_and_ignores_invalid_config(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config_path = root / "data" / "prototype" / "demo_config.json"
+            config_path.parent.mkdir(parents=True)
+            config_path.write_text('{"selected_app_id": 10}', encoding="utf-8")
+            settings = Settings.from_env(root)
+            self.assertEqual(settings.demo_selected_app_id, 10)
+
+            config_path.write_text('{"selected_app_id": "not-an-app"}', encoding="utf-8")
+            self.assertIsNone(settings.demo_selected_app_id)
 
 
 if __name__ == "__main__":

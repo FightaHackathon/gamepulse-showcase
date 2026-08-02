@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import csv
 import html
+from io import StringIO
+from typing import Any, Iterable, Mapping
 
 from gamepulse.market_analysis import DeveloperOpportunity
 
@@ -11,6 +14,39 @@ def _safe_url(value: str | None) -> str | None:
     if not value or not value.startswith(("https://", "http://")):
         return None
     return html.escape(value, quote=True)
+
+
+def _get(value: Any, name: str, default: Any = None) -> Any:
+    if isinstance(value, Mapping):
+        return value.get(name, default)
+    return getattr(value, name, default)
+
+
+def _text(value: Any, fallback: str = "Unavailable") -> str:
+    if value is None or value == "":
+        return fallback
+    return html.escape(str(value), quote=True)
+
+
+def _number(value: Any, fallback: str = "Unavailable") -> str:
+    if value is None:
+        return fallback
+    try:
+        return f"{float(value):,.0f}"
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _percent(value: Any, fallback: str = "Unavailable") -> str:
+    if value is None:
+        return fallback
+    try:
+        numeric = float(value)
+        if abs(numeric) <= 1:
+            numeric *= 100
+        return f"{numeric:.0f}%"
+    except (TypeError, ValueError):
+        return fallback
 
 
 def _art_markup(url: str | None, alt: str) -> str:
@@ -58,12 +94,7 @@ def render_opportunity_summary(st, opportunity: DeveloperOpportunity) -> None:
         ("Comparables", opportunity.components.comparable_coverage),
     )
     component_markup = "".join(
-        f"""
-        <div class="gp-developer-component">
-          <div class="gp-developer-component-row"><span>{html.escape(label)}</span><span>{round(value * 100):.0f}/100</span></div>
-          <div class="gp-developer-meter" aria-label="{html.escape(label)} signal {round(value * 100):.0f} out of 100"><div class="gp-developer-meter-fill" style="width:{max(0, min(100, value * 100)):.0f}%"></div></div>
-        </div>
-        """
+        f'<div class="gp-developer-component"><div class="gp-developer-component-row"><span>{html.escape(label)}</span><span>{round(value * 100):.0f}/100</span></div><div class="gp-developer-meter" aria-label="{html.escape(label)} signal {round(value * 100):.0f} out of 100"><div class="gp-developer-meter-fill" style="width:{max(0, min(100, value * 100)):.0f}%"></div></div></div>'
         for label, value in components
     )
     reasons = "".join(f"<li>{html.escape(str(reason))}</li>" for reason in opportunity.reasons)
@@ -75,7 +106,7 @@ def render_opportunity_summary(st, opportunity: DeveloperOpportunity) -> None:
   <div>
     <h3 id="gp-developer-opportunity-title" class="gp-developer-opportunity-title">A decision-ready public-signal read</h3>
     <p class="gp-developer-opportunity-copy">This score makes the evidence visible so a developer can decide what to validate next. It is deliberately directional and never represents verified sales or downloads.</p>
-    {component_markup}
+{component_markup}
     <ul class="gp-developer-reasons">{reasons}</ul>
     <p class="gp-developer-card-meta">{html.escape(opportunity.disclaimer)}</p>
   </div>
@@ -106,6 +137,249 @@ def render_comparable_card(st, comparable) -> None:
 
 
 def render_creator_fit_card(st, fit) -> None:
-    reasons = " · ".join(str(item) for item in getattr(fit, "reasons", ())[:3]) or "Based on current creator signals"
-    markup = f'<article class="gp-developer-shell gp-developer-card"><div class="gp-developer-card-title">{html.escape(str(fit.streamer_id))}</div><div class="gp-developer-card-meta"><span style="color:#6EA8FF;font-weight:750">Fit {float(fit.score):.0f}/100</span> · {html.escape(str(fit.score_band))}</div><div class="gp-developer-card-copy">{html.escape(reasons)}</div></article>'
+    """Render a recommendation with a scan-first surface and optional evidence."""
+
+    name_value = _get(fit, "streamer_name") or _get(fit, "streamer_id", "Streamer")
+    name = _text(name_value)
+    reasons = tuple(str(item) for item in (_get(fit, "reasons", ()) or ())[:3]) or (
+        "Based on available public creator signals.",
+    )
+    direct_matches = tuple(
+        str(item).strip()
+        for item in (_get(fit, "direct_game_matches", ()) or ())
+        if str(item).strip()
+    )
+    similar_matches = tuple(
+        str(item).strip()
+        for item in (_get(fit, "similar_game_matches", ()) or ())
+        if str(item).strip()
+    )
+    if direct_matches:
+        primary_match = "Direct Game Match"
+    elif similar_matches:
+        primary_match = "Similar Game Specialist"
+    else:
+        primary_match = "Audience Similarity Match"
+
+    components = _get(_get(fit, "components"), "values", {}) or {}
+    component_labels = {
+        "category_history_fit": "Category history fit",
+        "similar_game_fit": "Similar-game fit",
+        "audience_suitability": "Audience suitability",
+        "consistency": "Consistency",
+        "momentum": "Momentum",
+        "language_fit": "Language fit",
+        "discoverability": "Discoverability",
+        "data_confidence": "Data confidence",
+    }
+    component_markup = "".join(
+        f'<span class="gp-developer-component-chip"><strong>{html.escape(component_labels.get(key, key.replace("_", " ").title()))}:</strong> {_percent(value)}</span>'
+        for key, value in components.items()
+        if key in component_labels
+    ) or '<span class="gp-developer-component-chip">Component detail unavailable</span>'
+
+    tier = _get(fit, "channel_tier")
+    match_evidence: list[str] = []
+    match_basis: list[str] = []
+    if direct_matches:
+        match_basis.append("Direct selected-game history")
+        match_evidence.append(
+            f'<li><strong>âœ“ Direct selected-game history</strong> - {html.escape(", ".join(direct_matches))}</li>'
+        )
+    if similar_matches:
+        match_basis.append("Similar-game history (audience overlap)")
+        match_evidence.append(
+            f'<li><strong>âœ“ Similar-game audience overlap</strong> - {html.escape(", ".join(similar_matches))}</li>'
+        )
+    audience_label = f"General audience suitability - {_percent(components.get('audience_suitability'))} fit"
+    if tier:
+        audience_label += f" for the {_text(tier)} tier"
+    match_basis.append("General audience suitability")
+    match_evidence.append(f"<li><strong>âœ“ {html.escape(audience_label)}</strong></li>")
+
+    similarity_details = (
+        f"Game/category similarity: Category history fit: {_percent(components.get('category_history_fit'))} - "
+        f"Similar-game fit: {_percent(components.get('similar_game_fit'))}"
+    )
+    audience_details = f"{_percent(components.get('audience_suitability'))} suitability"
+    if tier:
+        audience_details += f" - tier {_text(tier)}"
+    similar_markup = ""
+    if similar_matches:
+        similar_markup = (
+            f'<div class="gp-developer-card-copy"><strong>Similar-game match:</strong> {", ".join(_text(item) for item in similar_matches)} - '
+            f'<strong>Why it matters:</strong> Similar-game audience overlap is a directional proxy for reaching a related audience; '
+            f'Audience suitability: {_percent(components.get("audience_suitability"))} - '
+            f'Median viewers: {_number(_get(fit, "median_viewers"))}.</div>'
+        )
+    viewer_details = []
+    for key, label in (
+        ("average_viewers", "Average viewers"),
+        ("median_viewers", "Median viewers"),
+        ("peak_viewers", "Peak viewers"),
+    ):
+        value = _get(fit, key)
+        if value is not None:
+            viewer_details.append(f"{label}: {_number(value)}")
+    if _get(fit, "observed_at"):
+        viewer_details.append(f"Observed: {_text(_get(fit, 'observed_at'))}")
+    viewer_evidence = " - ".join(viewer_details) or "No viewer counts are available."
+
+    limitation_values = _get(fit, "data_limitations", ()) or _get(fit, "cautions", ()) or ()
+    limitation_items = tuple(str(item) for item in limitation_values) or (
+        "No specific limitation recorded; treat this as directional evidence.",
+    )
+    missing_components = {str(item) for item in (_get(fit, "unavailable_components", ()) or ())}
+    missing_history = [
+        label
+        for key, label in (
+            ("category_history_fit", "Game/category history"),
+            ("similar_game_fit", "Similar-game history"),
+            ("consistency", "Viewer consistency history"),
+            ("momentum", "Growth history"),
+        )
+        if key in missing_components
+    ]
+    if any("limited observations" in item.casefold() or "incomplete history" in item.casefold() for item in limitation_items):
+        missing_history.append("Observation history is limited")
+    missing_history_details = " - ".join(missing_history) if missing_history else "No missing history flagged."
+    partial_details = "Partial coverage is flagged in the source data." if _get(fit, "partial_coverage") else "No partial coverage flag."
+    confidence_value = _get(fit, "confidence_score")
+    confidence_band = _get(fit, "confidence_band")
+    low_confidence = str(confidence_band or "").casefold() in {"low confidence", "very low confidence"}
+    if not confidence_band:
+        try:
+            low_confidence = float(confidence_value) < 0.55
+        except (TypeError, ValueError):
+            low_confidence = False
+    confidence_note = (
+        f"{_text(confidence_band or 'Low confidence')} ({_percent(confidence_value)}) may reduce reliability."
+        if low_confidence
+        else f"Not flagged; {_text(confidence_band)} ({_percent(confidence_value)})."
+    )
+    source_mode = _text(_get(fit, "source_mode") or _get(fit, "data_source"), "Unknown")
+    source_name = _text(_get(fit, "source_name"), "Not provided")
+    observed_at = _text(_get(fit, "observed_at"))
+    profile_image = _safe_url(_get(fit, "profile_image_url"))
+    image_markup = (
+        f'<img class="gp-developer-creator-image" src="{profile_image}" alt="{html.escape(str(name_value), quote=True)} profile image" />'
+        if profile_image
+        else '<div class="gp-developer-creator-placeholder">Profile image unavailable</div>'
+    )
+    channel_url = _safe_url(_get(fit, "twitch_channel_url"))
+    twitch_link = (
+        f'<a href="{channel_url}" target="_blank" rel="noopener">Open Twitch channel</a>'
+        if channel_url
+        else "Twitch link unavailable"
+    )
+    provenance_note = _get(fit, "provenance_note", "")
+    try:
+        fit_score = f"{float(_get(fit, 'score', 0)):.1f}/100"
+    except (TypeError, ValueError):
+        fit_score = "Unavailable"
+
+    details_markup = f"""
+  <details class="gp-developer-details">
+    <summary>View supporting evidence and data details</summary>
+    <div class="gp-developer-details-body">
+      <div class="gp-developer-card-copy"><strong>Supporting match evidence:</strong><ul>{''.join(match_evidence)}</ul><strong>Match basis:</strong> {" + ".join(match_basis)}</div>
+      {similar_markup}
+      <div class="gp-developer-card-copy"><strong>Audience and history:</strong> {similarity_details} - Audience suitability: {audience_details} - Available viewer evidence: {viewer_evidence}</div>
+      <div class="gp-developer-creator-metrics"><span>Average viewers: {_number(_get(fit, 'average_viewers'))}</span><span>Median viewers: {_number(_get(fit, 'median_viewers'))}</span><span>Peak viewers: {_number(_get(fit, 'peak_viewers'))}</span><span>Primary category: {_text(_get(fit, 'primary_category'))}</span><span>Category share: {_percent(_get(fit, 'primary_category_share'))}</span><span>Language: {_text(_get(fit, 'language'))}</span><span>Tier: {_text(_get(fit, 'channel_tier'))}</span><span>Growth: {_percent(_get(fit, 'seven_day_growth'), 'Unavailable - insufficient history')}</span><span>Growth interval: {_number(_get(fit, 'seven_day_growth_interval_hours'), 'Unavailable')}</span><span>Growth baseline: {_text(_get(fit, 'seven_day_growth_baseline_at'), 'Unavailable - insufficient history')}</span></div>
+      <div class="gp-developer-component-chips">{component_markup}</div>
+      <div class="gp-developer-caution"><strong>Limitations: Data limitations:</strong><ul>{''.join(f'<li>{html.escape(item)}</li>' for item in limitation_items)}</ul><div><strong>Evidence note:</strong> Recommendations are directional public-signal evidence, not guaranteed results.</div><div><strong>Missing history:</strong> {missing_history_details} - <strong>Partial data:</strong> {partial_details} - <strong>{'Low confidence' if low_confidence else 'Confidence note'}:</strong> {confidence_note}</div></div>
+      <div class="gp-developer-card-meta">Data source: {source_mode} - {source_name} - Observation date: {observed_at} - {twitch_link}</div>
+      {f'<div class="gp-developer-card-meta">Provenance: {_text(provenance_note)}</div>' if provenance_note else ''}
+    </div>
+  </details>
+"""
+    markup = f"""
+<article class="gp-developer-shell gp-developer-card gp-developer-creator-card" aria-label="Promotion recommendation: {html.escape(str(name_value), quote=True)}">
+  <div class="gp-developer-creator-header"><div>{image_markup}</div><div><div class="gp-developer-card-title">{name}</div><div class="gp-developer-card-meta"><span class="gp-developer-fit-score">Promotion Fit Score {fit_score}</span> - {_text(_get(fit, 'score_band'))}</div><div class="gp-developer-confidence"><strong>Confidence:</strong> Confidence level: {_percent(_get(fit, 'confidence_score'))} - {_text(_get(fit, 'confidence_band'))}</div></div></div>
+  <div class="gp-developer-match-type"><span class="gp-developer-match-label">Primary match</span><strong>{primary_match}</strong></div>
+  <div class="gp-developer-card-copy gp-developer-top-reasons"><strong>Top reasons</strong><span class="gp-developer-card-meta">Recommended because:</span><ul>{''.join(f'<li>âœ“ {html.escape(reason)}</li>' for reason in reasons)}</ul></div>
+{details_markup}
+</article>
+"""
     st.markdown(markup, unsafe_allow_html=True)
+
+
+def render_creator_comparison(st, fits: Iterable[Any]) -> None:
+    """Render a compact comparison of two or three selected public profiles."""
+
+    selected = list(fits)[:3]
+    if len(selected) < 2:
+        st.info("Select two or three recommended streamers to compare them.")
+        return
+    fields = (
+        ("Fit score", lambda fit: f"{float(_get(fit, 'score', 0)):.1f}/100"),
+        ("Confidence", lambda fit: _percent(_get(fit, "confidence_score"))),
+        ("Audience size", lambda fit: _number(_get(fit, "average_viewers"))),
+        ("Category-history fit", lambda fit: _percent((_get(_get(fit, "components"), "values", {}) or {}).get("category_history_fit"))),
+        ("Similar-game fit", lambda fit: _percent((_get(_get(fit, "components"), "values", {}) or {}).get("similar_game_fit"))),
+        ("Audience suitability", lambda fit: _percent((_get(_get(fit, "components"), "values", {}) or {}).get("audience_suitability"))),
+        ("Consistency", lambda fit: _percent((_get(_get(fit, "components"), "values", {}) or {}).get("consistency"))),
+        ("Momentum", lambda fit: _percent((_get(_get(fit, "components"), "values", {}) or {}).get("momentum"))),
+        ("Language fit", lambda fit: _percent((_get(_get(fit, "components"), "values", {}) or {}).get("language_fit"))),
+        ("Discoverability", lambda fit: _percent((_get(_get(fit, "components"), "values", {}) or {}).get("discoverability"))),
+    )
+    header = "<tr><th>Measure</th>" + "".join(f"<th>{_text(_get(fit, 'streamer_name') or _get(fit, 'streamer_id'))}</th>" for fit in selected) + "</tr>"
+    rows = "".join(
+        "<tr><th>" + html.escape(label) + "</th>" + "".join(f"<td>{html.escape(str(formatter(fit)))}</td>" for fit in selected) + "</tr>"
+        for label, formatter in fields
+    )
+    st.markdown(
+        f'<section class="gp-developer-shell gp-developer-comparison"><h3>Streamer comparison</h3><table><thead>{header}</thead><tbody>{rows}</tbody></table></section>',
+        unsafe_allow_html=True,
+    )
+
+
+def creator_fits_csv(fits: Iterable[Any]) -> str:
+    """Serialize derived recommendation fields only; never raw provider payloads."""
+
+    fieldnames = [
+        "streamer_id", "streamer_name", "fit_score", "score_band", "confidence_score", "confidence_band",
+        "average_viewers", "median_viewers", "peak_viewers", "primary_category", "primary_category_share",
+        "language", "channel_tier", "seven_day_growth", "seven_day_growth_interval_hours", "seven_day_growth_baseline_at", "seven_day_growth_latest_at", "source_mode", "source_name", "observed_at",
+        "data_source", "data_limitations", "partial_coverage", "provenance_note", "collection_ids", "twitch_channel_url",
+        "reasons", "cautions", "category_history_fit", "similar_game_fit", "audience_suitability",
+        "consistency", "momentum", "language_fit", "discoverability", "data_confidence",
+    ]
+    output = StringIO(newline="")
+    writer = csv.DictWriter(output, fieldnames=fieldnames)
+    writer.writeheader()
+    for fit in fits:
+        components = _get(_get(fit, "components"), "values", {}) or {}
+        row = {
+            "streamer_id": _get(fit, "streamer_id", ""),
+            "streamer_name": _get(fit, "streamer_name", ""),
+            "fit_score": _get(fit, "score", ""),
+            "score_band": _get(fit, "score_band", ""),
+            "confidence_score": _get(fit, "confidence_score", ""),
+            "confidence_band": _get(fit, "confidence_band", ""),
+            "average_viewers": _get(fit, "average_viewers", ""),
+            "median_viewers": _get(fit, "median_viewers", ""),
+            "peak_viewers": _get(fit, "peak_viewers", ""),
+            "primary_category": _get(fit, "primary_category", ""),
+            "primary_category_share": _get(fit, "primary_category_share", ""),
+            "language": _get(fit, "language", ""),
+            "channel_tier": _get(fit, "channel_tier", ""),
+            "seven_day_growth": _get(fit, "seven_day_growth", ""),
+            "seven_day_growth_interval_hours": _get(fit, "seven_day_growth_interval_hours", ""),
+            "seven_day_growth_baseline_at": _get(fit, "seven_day_growth_baseline_at", ""),
+            "seven_day_growth_latest_at": _get(fit, "seven_day_growth_latest_at", ""),
+            "source_mode": _get(fit, "source_mode", ""),
+            "source_name": _get(fit, "source_name", ""),
+            "observed_at": _get(fit, "observed_at", ""),
+            "data_source": _get(fit, "data_source", "") or _get(fit, "source_mode", ""),
+            "data_limitations": "; ".join(str(item) for item in (_get(fit, "data_limitations", ()) or _get(fit, "cautions", ()) or ())),
+            "partial_coverage": _get(fit, "partial_coverage", ""),
+            "provenance_note": _get(fit, "provenance_note", ""),
+            "collection_ids": "; ".join(str(item) for item in (_get(fit, "collection_ids", ()) or ())),
+            "twitch_channel_url": _get(fit, "twitch_channel_url", ""),
+            "reasons": "; ".join(str(item) for item in (_get(fit, "reasons", ()) or ())),
+            "cautions": "; ".join(str(item) for item in (_get(fit, "cautions", ()) or ())),
+        }
+        row.update({key: components.get(key, "") for key in fieldnames if key in components})
+        writer.writerow(row)
+    return output.getvalue()

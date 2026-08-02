@@ -2,6 +2,19 @@
 
 Use the same selected game throughout the walkthrough. The default curated game is saved in `data/prototype/demo_config.json`.
 
+## Fixed two-minute Developer Mode flow
+
+Use the existing curated selection: Steam app id `10`, **Counter-Strike**.
+
+1. **0:00-0:20 - Open the slice.** Start `streamlit run app.py`, keep Counter-Strike selected, and open Developer Mode.
+2. **0:20-0:55 - Set campaign context.** Choose **Awareness**, target language **en**, preferred creator tier **mid-size**, keep similar-game specialists **included**, and turn on **Require selected-game history**. Leave budget positioning as context (for example, **Flexible**).
+3. **0:55-1:35 - Read the output.** Show the separate Campaign summary fields, then the public-signal opportunity score, market evidence, comparable games, review themes, and 30-day review-activity baseline. Scroll to the recommendation cards and point out their evidence, source, confidence, and limitations.
+4. **1:35-2:00 - Close with the decision.** Explain that this is a directional shortlist for validating creator fit; it does not contact creators or estimate sponsorship prices.
+
+Expected output is a Counter-Strike campaign summary followed by the existing public-signal and creator-fit sections. With the local demo fixture, the selected-game-history and mid-size/en filters should surface the matching Counter-Strike creator evidence when those observations are available.
+
+Limitations: the demo uses prepared public-signal data rather than guaranteed live observations; scores are directional, not verified sales, reach, or conversion forecasts; budget positioning is context only; and similar-game specialists depend on available catalog/category overlap.
+
 1. Start `streamlit run app.py` and open the local URL.
 2. On Home, show the selected game and search for another catalogue entry to demonstrate that the story is data-driven.
 3. In Player Mode, enable “Prefer hidden gems,” adjust the price limit, and open several recommendation reasons.
