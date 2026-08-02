@@ -1,0 +1,14 @@
+# Vercel hosts the static landing page only. Streamlit and dataset payloads run elsewhere.
+data/
+gamepulse/
+gamepulse_data/
+scripts/
+tests/
+docs/
+app.py
+requirements.txt
+DATASET_SOURCES.md
+.env*
+.git/
+.gitignore
+.gitattributes

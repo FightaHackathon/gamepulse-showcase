@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="GamePulse connects player, streamer and developer signals in one prototype." />
+    <title>GamePulse — See the game signal before it moves</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="GamePulse home">GamePulse</a>
+      <nav class="site-nav" aria-label="Primary navigation">
+        <a href="#player">Player</a>
+        <a href="#streamer">Streamer</a>
+        <a href="#developer">Developer</a>
+      </nav>
+      <a class="button button-small" data-app-link href="https://gamepulse-prototype.streamlit.app">Open prototype</a>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="signal-rings" aria-hidden="true">
+          <span></span><span></span><span></span><i></i><i></i><i></i>
+        </div>
+        <div class="hero-copy">
+          <h1 id="hero-title">See the game signal before it moves.</h1>
+          <p>One view for what players love, what streamers can grow, and what developers should validate next.</p>
+          <a class="button" data-app-link href="https://gamepulse-prototype.streamlit.app">Open prototype <span aria-hidden="true">↗</span></a>
+        </div>
+
+        <div class="signal-board" aria-label="GamePulse signal preview">
+          <div class="board-rail" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M3 12h4l2-7 4 14 2-7h6" /></svg>
+            <svg viewBox="0 0 24 24"><path d="M7 10V7a5 5 0 0 1 10 0v3M5 10h14v8H5z" /></svg>
+            <svg viewBox="0 0 24 24"><path d="M5 12a7 7 0 0 1 14 0M8 12a4 4 0 0 1 8 0M11 12a1 1 0 0 1 2 0" /></svg>
+            <svg viewBox="0 0 24 24"><path d="m5 19 6-6 3 3 5-6M5 5v14h14" /></svg>
+          </div>
+          <div class="board-content">
+            <div class="board-head">
+              <span class="column-title player-title"><span class="icon">⌁</span>Player</span>
+              <span class="column-title streamer-title"><span class="icon">◈</span>Streamer</span>
+              <span class="column-title developer-title"><span class="icon">⌘</span>Developer</span>
+            </div>
+            <div class="board-grid">
+              <article><span class="row-icon player-title">♡</span><div><strong>What's resonating</strong><p>Moments and features players engage with</p></div></article>
+              <article><span class="row-icon streamer-title">↗</span><div><strong>Stream potential</strong><p>Moments that create watchable spikes</p></div></article>
+              <article><span class="row-icon developer-title">⌖</span><div><strong>What to validate</strong><p>Hypotheses backed by player signal</p></div></article>
+              <article><span class="row-icon player-title">△</span><div><strong>Pain points</strong><p>Friction and drop-off in the experience</p></div></article>
+              <article><span class="row-icon streamer-title">▣</span><div><strong>Content opportunities</strong><p>Features and stories worth streaming</p></div></article>
+              <article><span class="row-icon developer-title">◇</span><div><strong>What to build next</strong><p>Highest-impact features and improvements</p></div></article>
+              <article><span class="row-icon player-title">◌</span><div><strong>Discovery path</strong><p>How players find and try your game</p></div></article>
+              <article><span class="row-icon streamer-title">♧</span><div><strong>Audience fit</strong><p>Communities most likely to engage</p></div></article>
+              <article><span class="row-icon developer-title">!</span><div><strong>Risk radar</strong><p>Signals that could limit success</p></div></article>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="decisions" aria-labelledby="decisions-title">
+        <div class="section-heading">
+          <h2 id="decisions-title">One signal, three useful decisions</h2>
+          <span class="heading-rule" aria-hidden="true"></span>
+        </div>
+        <div class="decision-grid">
+          <article id="player" class="decision decision-player">
+            <div class="decision-mark" aria-hidden="true">⌁</div>
+            <h3>For players</h3>
+            <p>Understand why games click. See what's worth your time, what to try next, and how to get more from the games you love.</p>
+          </article>
+          <article id="streamer" class="decision decision-streamer">
+            <div class="decision-mark" aria-hidden="true">◉</div>
+            <h3>For streamers</h3>
+            <p>Spot what will pop on stream. Find moments and games with growth potential and build content your audience wants to watch.</p>
+          </article>
+          <article id="developer" class="decision decision-developer">
+            <div class="decision-mark" aria-hidden="true">⌘</div>
+            <h3>For developers</h3>
+            <p>Validate with confidence. Prioritize what matters, reduce risk, and build experiences players and streamers will champion.</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>GamePulse prototype</span>
+      <span>Interactive app runs on Streamlit · landing page runs on Vercel</span>
+    </footer>
+
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      const appUrl = params.get('app') || 'https://gamepulse-prototype.streamlit.app';
+      document.querySelectorAll('[data-app-link]').forEach((link) => {
+        link.href = appUrl;
+        link.target = '_blank';
+        link.rel = 'noopener';
+      });
+    </script>
+  </body>
+</html>
