@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,9 +21,11 @@ def _optional(name: str) -> str | None:
     value = os.getenv(name, "").strip()
     if not value:
         try:
-            import streamlit as st
-
-            value = str(st.secrets.get(name, "")).strip()
+            # ``app.py`` imports Streamlit before constructing Settings. Do
+            # not import it from command-line data scripts just to discover
+            # that no Cloud secrets are present.
+            streamlit = sys.modules.get("streamlit")
+            value = str(streamlit.secrets.get(name, "")).strip() if streamlit else ""
         except Exception:
             # Streamlit is optional for data-preparation scripts and may not
             # have a secrets file outside an app runtime.
