@@ -104,11 +104,12 @@ def render_personalization(st, profile_state: PlayerProfileSession, settings: Se
             "Public Steam profile URL or SteamID",
             value=profile_state.profile_input,
             key="gp_player_steam_profile",
-            help="Only public Game Details are read. No password or cookie is requested.",
+            help="Only public profile data is read. Full-library mode requires public Game Details; no password or cookie is requested.",
         )
-        st.caption("The profile must expose public Game Details. The analysis stays in this browser session.")
+        st.caption("Public-page fallback uses recent games only; full-library analysis uses the Steam Web API when configured. The analysis stays in this browser session.")
+        submit_label = "Analyze public library" if settings.steam_enabled else "Analyze public profile"
         submitted = st.form_submit_button(
-            "Analyze public library",
+            submit_label,
             type="primary",
             use_container_width=True,
         )

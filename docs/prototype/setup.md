@@ -50,6 +50,12 @@ saving the secret, restart the app and Player Mode will enable **Analyze public
 library**. The profile must expose public Game Details; no Steam password or
 cookie is requested.
 
+Without a key, **Analyze public profile** fetches only the recent-game cards
+already visible on the public Steam profile page. It does not use cookies or
+login sessions, and it cannot recover a private or complete library. Steam can
+change that page markup or rate-limit requests, so this fallback is intended as
+a prototype convenience rather than a replacement for the official API.
+
 ## Data labels
 
 - `Local prepared data`: transformed Steam snapshot.
