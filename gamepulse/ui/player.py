@@ -61,7 +61,7 @@ def render(st, settings: Settings, catalog: Catalog, state: DemoState) -> DemoSt
         state.selected_app_id,
         preferences,
         excluded_app_ids=set(profile_state.owned_app_ids),
-        limit=8,
+        limit=24,
     )
 
     st.subheader("Recommended games")

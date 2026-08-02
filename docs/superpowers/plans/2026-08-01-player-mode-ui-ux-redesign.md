@@ -278,7 +278,7 @@ Expected: all tests pass and no old reference to `prefer_hidden_gems` remains.
 
 **Interfaces:**
 - Produces: `PreferenceOptions(tags: tuple[str, ...], genres: tuple[str, ...])`
-- Produces: `Catalog.preference_options(limit_per_group: int = 100) -> PreferenceOptions`
+- Produces: `Catalog.preference_options(limit_per_group: int = 500) -> PreferenceOptions`
 
 - [ ] **Step 1: Write the failing catalogue-options test**
 
@@ -299,7 +299,7 @@ Expected: `Catalog` has no `preference_options` method.
 
 - [ ] **Step 3: Implement one bounded query per option group**
 
-Use parameterized limits and return typed tuples. Do not issue one SQL query per game. Limit each group to `1..250` values.
+Use parameterized limits and return typed tuples. Do not issue one SQL query per game. Limit each group to `1..1000` values after deduplicating in SQL.
 
 ```python
 @dataclass(frozen=True)

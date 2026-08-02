@@ -56,6 +56,20 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(tuple(item.casefold() for item in options.tags), ("fps", "rpg"))
         self.assertEqual(tuple(item.casefold() for item in options.genres), ("action", "role-playing"))
 
+    def test_default_preference_options_include_all_distinct_catalog_values(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = self._database(Path(temp_dir))
+            connection = sqlite3.connect(path)
+            connection.executemany("INSERT INTO game_tags VALUES (?, ?)", [(10, f"Tag {index:03d}") for index in range(260)])
+            connection.executemany("INSERT INTO game_genres VALUES (?, ?)", [(10, f"Genre {index:03d}") for index in range(40)])
+            connection.commit()
+            connection.close()
+
+            options = Catalog(path).preference_options()
+
+        self.assertGreaterEqual(len(options.tags), 260)
+        self.assertGreaterEqual(len(options.genres), 40)
+
     def test_comparable_games_rank_by_shared_tags_and_genres(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             catalog = Catalog(self._database(Path(temp_dir)))

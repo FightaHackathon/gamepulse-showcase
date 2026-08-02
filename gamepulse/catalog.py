@@ -67,11 +67,13 @@ class Catalog:
 
     def _distinct_values(self, table: str, limit: int) -> tuple[str, ...]:
         """Return bounded, case-insensitively unique values from an internal table."""
-        bounded_limit = max(1, min(int(limit), 250))
+        bounded_limit = max(1, min(int(limit), 1000))
         connection = self._connection()
         try:
             rows = connection.execute(
-                f"SELECT value FROM {table} WHERE value IS NOT NULL AND TRIM(value) <> '' "
+                f"SELECT MIN(TRIM(value)) AS value FROM {table} "
+                "WHERE value IS NOT NULL AND TRIM(value) <> '' "
+                "GROUP BY TRIM(value) COLLATE NOCASE "
                 "ORDER BY value COLLATE NOCASE LIMIT ?",
                 (bounded_limit,),
             ).fetchall()
@@ -89,8 +91,8 @@ class Catalog:
             values.append(value)
         return tuple(values)
 
-    def preference_options(self, limit_per_group: int = 100) -> PreferenceOptions:
-        """Return bounded tag and genre options for manual personalization."""
+    def preference_options(self, limit_per_group: int = 500) -> PreferenceOptions:
+        """Return broad, case-insensitively unique tag and genre options."""
         return PreferenceOptions(
             tags=self._distinct_values("game_tags", limit_per_group),
             genres=self._distinct_values("game_genres", limit_per_group),
