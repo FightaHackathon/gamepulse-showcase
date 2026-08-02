@@ -42,6 +42,19 @@ class PlayerModeUITests(unittest.TestCase):
         )
 
         self.assertGreaterEqual(card_count, 24)
+        ranked_caption = next(item.value for item in app.caption if "games ranked" in item.value)
+        self.assertGreaterEqual(int(ranked_caption.split()[0]), 300)
+
+    def test_player_mode_can_open_game_details_and_review_catalogue(self):
+        app = self._player()
+
+        view_details = [item for item in app.button if item.label == "View details"]
+        self.assertTrue(view_details)
+        view_details[0].click().run()
+
+        self.assertFalse(app.exception)
+        self.assertIn("Review catalogue", [item.value for item in app.subheader])
+        self.assertTrue(any("newest public reviews" in item.value for item in app.caption))
 
 
 if __name__ == "__main__":

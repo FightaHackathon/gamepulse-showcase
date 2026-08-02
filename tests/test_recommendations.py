@@ -101,6 +101,43 @@ class RecommendationTests(unittest.TestCase):
         names = [item.name.casefold() for item in all_results]
         self.assertEqual(len(names), len(set(names)))
 
+    def test_ranker_can_return_more_than_fifty_results(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = self._database(Path(temp_dir))
+            connection = sqlite3.connect(path)
+            games = [
+                (app_id, f"RPG Candidate {app_id}", "2024-01-01", 10.0, 100, 200, 10, 100, 0.9, "")
+                for app_id in range(100, 220)
+            ]
+            connection.executemany("INSERT INTO games VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", games)
+            connection.executemany("INSERT INTO game_tags VALUES (?, 'Fantasy')", [(app_id,) for app_id, *_ in games])
+            connection.executemany("INSERT INTO game_genres VALUES (?, 'Role-Playing')", [(app_id,) for app_id, *_ in games])
+            connection.commit()
+            connection.close()
+
+            results = RecommendationEngine(path).recommend_similar(10, PlayerPreferences(), limit=100)
+
+        self.assertEqual(len(results), 100)
+
+    def test_broad_ranker_fills_window_with_catalogue_candidates(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = self._database(Path(temp_dir))
+            connection = sqlite3.connect(path)
+            games = [
+                (app_id, f"Unrelated Candidate {app_id}", "2024-01-01", 10.0, 100, 200, 10, 100, 0.9, "")
+                for app_id in range(100, 220)
+            ]
+            connection.executemany("INSERT INTO games VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", games)
+            connection.executemany("INSERT INTO game_tags VALUES (?, 'Strategy')", [(app_id,) for app_id, *_ in games])
+            connection.executemany("INSERT INTO game_genres VALUES (?, 'Simulation')", [(app_id,) for app_id, *_ in games])
+            connection.commit()
+            connection.close()
+
+            results = RecommendationEngine(path).recommend_similar(10, PlayerPreferences(), limit=100)
+
+        self.assertEqual(len(results), 100)
+        self.assertTrue(any("broader catalogue candidate" in item.reasons for item in results))
+
 
 if __name__ == "__main__":
     unittest.main()

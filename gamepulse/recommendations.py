@@ -97,6 +97,7 @@ class RecommendationEngine:
 
     def recommend_similar(self, app_id: int, preferences: PlayerPreferences, excluded_app_ids: set[int] | None = None, limit: int = 10) -> list[Recommendation]:
         excluded = set(excluded_app_ids or ()) | {app_id}
+        requested_limit = max(1, min(int(limit), 500))
         connection = self._connection()
         try:
             seed_tags = self._values(connection, "game_tags", app_id)
@@ -118,7 +119,8 @@ class RecommendationEngine:
                 tag_overlap = len(seed_tags & tags)
                 genre_overlap = len(seed_genres & genres)
                 preference_overlap = len({item.casefold() for item in preferences.preferred_tags} & tags) + len({item.casefold() for item in preferences.preferred_genres} & genres)
-                if tag_overlap == 0 and genre_overlap == 0 and preference_overlap == 0:
+                has_similarity = tag_overlap > 0 or genre_overlap > 0 or preference_overlap > 0
+                if not has_similarity and requested_limit <= 50:
                     continue
                 owners_high = row["owners_high"]
                 if preferences.discovery_mode == "hidden_gems" and owners_high is not None and int(owners_high) >= 5_000_000:
@@ -142,7 +144,7 @@ class RecommendationEngine:
                     elif owners_high is not None:
                         score -= 10
                     score = max(0, min(100, score))
-                if score < 55:
+                if score < 55 and requested_limit <= 50:
                     continue
                 reasons = []
                 if preference_overlap:
@@ -155,6 +157,8 @@ class RecommendationEngine:
                     reasons.append(f"supports {preferences.operating_system}")
                 if preferences.discovery_mode == "hidden_gems" and owners_high is not None:
                     reasons.append("lower estimated audience estimate")
+                if not has_similarity:
+                    reasons.append("broader catalogue candidate")
                 reasons = reasons[:3]
                 recommendation = Recommendation(
                     app_id=candidate_id,
@@ -180,6 +184,6 @@ class RecommendationEngine:
                     by_name[name_key] = recommendation
             recommendations = list(by_name.values())
             recommendations.sort(key=lambda item: (-item.match_score, item.name.casefold(), item.app_id))
-            return recommendations[: max(1, min(limit, 50))]
+            return recommendations[:requested_limit]
         finally:
             connection.close()
