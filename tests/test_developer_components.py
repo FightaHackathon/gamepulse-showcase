@@ -3,7 +3,9 @@ from types import SimpleNamespace
 
 from gamepulse.market_analysis import DeveloperOpportunity, DeveloperOpportunityComponents
 from gamepulse.ui.developer_components import (
+    creator_fits_csv,
     render_comparable_card,
+    render_creator_comparison,
     render_creator_fit_card,
     render_developer_hero,
     render_opportunity_summary,
@@ -15,12 +17,16 @@ class FakeStreamlit:
     def __init__(self):
         self.markdowns = []
         self.captions = []
+        self.infos = []
 
     def markdown(self, value, unsafe_allow_html=False):
         self.markdowns.append((value, unsafe_allow_html))
 
     def caption(self, value):
         self.captions.append(value)
+
+    def info(self, value):
+        self.infos.append(value)
 
 
 class DeveloperComponentTests(unittest.TestCase):
@@ -73,6 +79,105 @@ class DeveloperComponentTests(unittest.TestCase):
         self.assertIn("Peer Game", markup)
         self.assertIn("CreatorOne", markup)
         self.assertIn("tag overlap", markup)
+
+    def test_creator_fit_card_formats_public_fit_evidence_and_cautions(self):
+        st = FakeStreamlit()
+        fit = SimpleNamespace(
+            streamer_id="creator-1",
+            streamer_name="Creator <One>",
+            score=78.5,
+            score_band="Strong fit",
+            confidence_score=0.62,
+            confidence_band="Moderate confidence",
+            average_viewers=2000,
+            median_viewers=1800,
+            peak_viewers=6500,
+            primary_category="Example Game",
+            primary_category_share=0.75,
+            language="en",
+            channel_tier="emerging",
+            seven_day_growth=0.12,
+            reasons=("historical category match",),
+            cautions=("limited observations",),
+            components=SimpleNamespace(values={"category_history_fit": 0.9, "similar_game_fit": 0.6}),
+            source_mode="Demo",
+            observed_at="2026-08-01T00:00:00Z",
+            twitch_channel_url="https://twitch.tv/creator-one",
+            profile_image_url=None,
+        )
+
+        render_creator_fit_card(st, fit)
+
+        markup = st.markdowns[-1][0]
+        self.assertIn("Promotion Fit Score", markup)
+        self.assertIn("78.5/100", markup)
+        self.assertIn("Creator &lt;One&gt;", markup)
+        self.assertIn("Moderate confidence", markup)
+        self.assertIn("limited observations", markup)
+        self.assertIn("Demo", markup)
+        self.assertIn("Category history fit", markup)
+
+    def test_creator_comparison_shows_two_or_three_fit_rows(self):
+        st = FakeStreamlit()
+        fits = [
+            SimpleNamespace(
+                streamer_id=identifier,
+                streamer_name=name,
+                score=score,
+                confidence_score=confidence,
+                components=SimpleNamespace(values={"category_history_fit": 0.8, "similar_game_fit": 0.4}),
+                average_viewers=1000,
+                language="en",
+            )
+            for identifier, name, score, confidence in (("a", "Alpha", 70, 0.8), ("b", "Beta", 65, 0.7))
+        ]
+
+        render_creator_comparison(st, fits)
+
+        markup = st.markdowns[-1][0]
+        self.assertIn("Streamer comparison", markup)
+        self.assertIn("Category-history fit", markup)
+        self.assertIn("Alpha", markup)
+        self.assertIn("Beta", markup)
+
+    def test_creator_csv_contains_derived_fields_only(self):
+        fit = SimpleNamespace(
+            streamer_id="creator-1",
+            streamer_name="Creator One",
+            score=78.5,
+            score_band="Strong fit",
+            confidence_score=0.62,
+            confidence_band="Moderate confidence",
+            average_viewers=2000,
+            median_viewers=1800,
+            peak_viewers=6500,
+            primary_category="Example Game",
+            primary_category_share=0.75,
+            language="en",
+            channel_tier="emerging",
+            seven_day_growth=0.12,
+            reasons=("historical category match",),
+            cautions=("limited observations",),
+            components=SimpleNamespace(values={"category_history_fit": 0.9}),
+            source_mode="Demo",
+            observed_at="2026-08-01T00:00:00Z",
+            twitch_channel_url="https://twitch.tv/creator-one",
+        )
+
+        csv_text = creator_fits_csv([fit])
+
+        self.assertIn("streamer_id,streamer_name,fit_score", csv_text)
+        self.assertIn("Creator One", csv_text)
+        self.assertIn("Demo", csv_text)
+        self.assertNotIn("token", csv_text.lower())
+        self.assertNotIn("credential", csv_text.lower())
+
+    def test_empty_creator_state_is_explicit(self):
+        st = FakeStreamlit()
+
+        render_creator_comparison(st, [])
+
+        self.assertIn("Select two or three", st.infos[0])
 
 
 if __name__ == "__main__":

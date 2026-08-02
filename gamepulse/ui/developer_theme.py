@@ -114,6 +114,25 @@ def developer_css() -> str:
 .gp-developer-card-title { color: var(--gp-developer-text); font-size: 1rem; font-weight: 700; margin: 0 0 7px; }
 .gp-developer-card-meta,
 .gp-developer-card-copy { color: var(--gp-developer-muted); font-size: .82rem; line-height: 1.45; }
+.gp-developer-creator-card { padding: 14px 16px; }
+.gp-developer-creator-header { display: grid; grid-template-columns: 54px 1fr; gap: 12px; align-items: center; }
+.gp-developer-creator-image,
+.gp-developer-creator-placeholder { width: 54px; height: 54px; border-radius: 50%; object-fit: cover; background: #0C1322; }
+.gp-developer-creator-placeholder { display: grid; place-items: center; color: var(--gp-developer-muted); font-size: .58rem; text-align: center; padding: 5px; box-sizing: border-box; }
+.gp-developer-fit-score { color: var(--gp-developer-primary); font-weight: 760; }
+.gp-developer-confidence { color: var(--gp-developer-text); font-size: .78rem; margin-top: 4px; }
+.gp-developer-creator-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 12px; margin: 13px 0; color: var(--gp-developer-muted); font-size: .78rem; }
+.gp-developer-component-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.gp-developer-component-chip { border: 1px solid var(--gp-developer-border); border-radius: 999px; color: var(--gp-developer-muted); padding: 4px 8px; font-size: .72rem; }
+.gp-developer-caution { color: #FFD78A; background: rgba(242,184,75,.10); border-left: 3px solid var(--gp-developer-warning); border-radius: 4px; padding: 8px 10px; margin: 10px 0; font-size: .78rem; }
+.gp-developer-card a { color: var(--gp-developer-primary); }
+.gp-developer-comparison { overflow-x: auto; padding: 15px; }
+.gp-developer-comparison h3 { color: var(--gp-developer-text); margin: 0 0 12px; }
+.gp-developer-comparison table { border-collapse: collapse; width: 100%; min-width: 620px; color: var(--gp-developer-muted); font-size: .78rem; }
+.gp-developer-comparison th,
+.gp-developer-comparison td { border-bottom: 1px solid var(--gp-developer-border); padding: 8px 10px; text-align: left; white-space: nowrap; }
+.gp-developer-comparison th { color: var(--gp-developer-text); }
+.gp-developer-comparison th:first-child { color: var(--gp-developer-muted); }
 .gp-developer-component { margin-top: 10px; }
 .gp-developer-component-row { display: flex; justify-content: space-between; gap: 12px; color: var(--gp-developer-muted); font-size: .78rem; }
 .gp-developer-meter { height: 6px; background: rgba(158,171,192,.18); border-radius: 999px; margin-top: 6px; overflow: hidden; }

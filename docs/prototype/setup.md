@@ -38,16 +38,25 @@ into source files or commit the real `.env`.
 
 ### Streamlit Community Cloud secrets
 
-For the deployed app, open **Manage app → Settings → Secrets** and add the
-following TOML entry (replace the placeholder locally; do not commit it):
+For the deployed app, choose `FightaHackathon/gamepulse-showcase`, branch
+`main`, and `app.py` in Streamlit Community Cloud. The repository already
+contains the root `requirements.txt`, `.streamlit/config.toml`, and the
+prototype database through Git LFS.
+
+Open **Manage app → Settings → Secrets** and add only the credentials you want
+to enable (replace the placeholders in the Cloud editor; do not commit them):
 
 ```toml
+TWITCH_CLIENT_ID = "your-twitch-client-id"
+TWITCH_CLIENT_SECRET = "your-twitch-client-secret"
 STEAM_WEB_API_KEY = "your-steam-web-api-key"
 ```
 
-The app reads Streamlit Cloud secrets as well as local `.env` values. After
-saving the secret, restart the app and Player Mode will enable **Analyze public
-library**. The profile must expose public Game Details; no Steam password or
+The Twitch pair enables live Streamer Mode data; with either value absent, the
+app intentionally stays on the labelled local `Demo` fixture. The Steam key
+enables **Analyze public library** in Player Mode. The app reads Streamlit
+Cloud secrets as well as local `.env` values. After saving secrets, restart the
+app. The Steam profile must expose public Game Details; no Steam password or
 cookie is requested.
 
 Without a key, **Analyze public profile** reads the public

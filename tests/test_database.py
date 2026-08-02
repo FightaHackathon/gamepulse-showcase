@@ -33,6 +33,9 @@ class PrototypeDatabaseTests(unittest.TestCase):
 
             self.assertEqual(report.table_counts["games"], 2)
             self.assertEqual(report.table_counts["reviews"], 1)
+            self.assertEqual(report.table_counts["twitch_game_snapshots"], 0)
+            self.assertEqual(report.table_counts["twitch_streamer_snapshots"], 0)
+            self.assertEqual(report.table_counts["twitch_game_mappings"], 0)
             self.assertTrue(report.foreign_keys_ok)
 
             import sqlite3
@@ -40,6 +43,15 @@ class PrototypeDatabaseTests(unittest.TestCase):
             try:
                 self.assertEqual(connection.execute("SELECT COUNT(*) FROM game_tags").fetchone()[0], 1)
                 self.assertEqual(connection.execute("SELECT COUNT(*) FROM review_summaries").fetchone()[0], 1)
+                game_columns = {row[1] for row in connection.execute("PRAGMA table_info(twitch_game_snapshots)")}
+                streamer_columns = {row[1] for row in connection.execute("PRAGMA table_info(twitch_streamer_snapshots)")}
+                mapping_columns = {row[1] for row in connection.execute("PRAGMA table_info(twitch_game_mappings)")}
+                self.assertIn("steam_app_id", game_columns)
+                self.assertIn("stream_id", streamer_columns)
+                self.assertTrue({
+                    "twitch_game_id", "twitch_name", "steam_app_id", "steam_name", "match_method",
+                    "match_score", "manual_verified", "updated_at",
+                } <= mapping_columns)
             finally:
                 connection.close()
 

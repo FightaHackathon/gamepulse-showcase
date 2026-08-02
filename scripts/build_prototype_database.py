@@ -106,7 +106,16 @@ def build_database(processed_dir: Path, database_path: Path) -> BuildReport:
         _load_reviews(connection, processed_dir)
         connection.commit()
         foreign_keys_ok = not connection.execute("PRAGMA foreign_key_check").fetchall()
-        table_names = ["games", "game_tags", "game_genres", "review_summaries", "reviews"]
+        table_names = [
+            "games",
+            "game_tags",
+            "game_genres",
+            "review_summaries",
+            "reviews",
+            "twitch_game_snapshots",
+            "twitch_streamer_snapshots",
+            "twitch_game_mappings",
+        ]
         counts = {table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in table_names}
         connection.close()
         connection = None

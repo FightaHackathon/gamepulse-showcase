@@ -40,7 +40,7 @@ class VerticalSliceAcceptanceTests(unittest.TestCase):
         self.assertIsNotNone(selected_opportunity, "The selected game must have a matching Twitch category for the complete story")
         creator_snapshot = provider.get_streamers(selected_opportunity.game_id)
         fits = rank_streamers(
-            {"genres": set(game.genres), "tags": set(game.tags), "language": "en"},
+            {"name": game.name, "genres": set(game.genres), "tags": set(game.tags), "language": "en"},
             [
                 FitProfile(item.streamer_id, set(item.tags) | {item.game_name}, item.language, item.channel_size_tier, item.viewer_count)
                 for item in creator_snapshot.data

@@ -29,8 +29,13 @@ def run() -> None:
     if not candidates:
         st.error("No suitable curated game exists in the prototype database.")
         st.stop()
+    selected_app_id = settings.demo_selected_app_id or candidates[0].steam_app_id
+    try:
+        catalog.get_game(selected_app_id)
+    except KeyError:
+        selected_app_id = candidates[0].steam_app_id
     if "gamepulse_state" not in st.session_state:
-        st.session_state.gamepulse_state = DemoState(candidates[0].steam_app_id)
+        st.session_state.gamepulse_state = DemoState(selected_app_id)
     state = st.session_state.gamepulse_state
     page = st.sidebar.radio("Mode", ["Home", "Player", "Streamer", "Developer"])
     if page == "Home":
