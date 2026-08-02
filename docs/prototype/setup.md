@@ -33,7 +33,7 @@ The app loads `.env` from the project root automatically; never paste secrets
 into source files or commit the real `.env`.
 
 - Twitch credentials enable the live Helix provider; keep the secret private.
-- A project-owned Steam Web API key enables full-library public-profile personalization. Without a key, the app can analyze recent games shown on a public Steam profile page. Keep Game Details public; never provide a Steam password or cookie.
+- A project-owned Steam Web API key enables the official full-library public-profile path. Without a key, the app first reads all visible rows from a public Steam games page and records their playtime, then falls back to recent profile cards if the games page is private or unavailable. Keep Game Details public; never provide a Steam password or cookie.
 - Mistral is not wired into the current prototype; local review analysis remains available without it.
 
 ### Streamlit Community Cloud secrets
@@ -50,11 +50,14 @@ saving the secret, restart the app and Player Mode will enable **Analyze public
 library**. The profile must expose public Game Details; no Steam password or
 cookie is requested.
 
-Without a key, **Analyze public profile** fetches only the recent-game cards
-already visible on the public Steam profile page. It does not use cookies or
-login sessions, and it cannot recover a private or complete library. Steam can
-change that page markup or rate-limit requests, so this fallback is intended as
-a prototype convenience rather than a replacement for the official API.
+Without a key, **Analyze public profile** reads the public
+`/games/?tab=all` page for every game row and recorded hours it exposes. The UI
+shows the complete returned profile table, total tracked hours, and most-played
+games; preference inference uses the whole returned list. If that page is
+private or unavailable, GamePulse falls back to the recent-game cards already
+visible on the profile. It does not use cookies or login sessions, and Steam can
+change page markup or rate-limit requests, so this remains a prototype fallback
+rather than a replacement for the official API.
 
 ## Data labels
 

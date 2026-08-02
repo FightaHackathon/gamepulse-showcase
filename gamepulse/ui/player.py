@@ -43,7 +43,7 @@ def render(st, settings: Settings, catalog: Catalog, state: DemoState) -> DemoSt
         st.session_state.player_profile_session = profile_state
         if profile_state.status == "connected":
             source_name = profile_state.library.source_name if profile_state.library else "Steam Web API"
-            scope = "public library games" if source_name == "Steam Web API" else "recent public games"
+            scope = "public library games" if source_name == "Steam Web API" or (profile_state.library and profile_state.library.complete) else "recent public games"
             st.success(f"Connected · {len(profile_state.owned_app_ids):,} {scope} analyzed for this session.")
         elif profile_state.message:
             st.warning(profile_state.message)

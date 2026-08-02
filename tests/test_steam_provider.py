@@ -51,6 +51,26 @@ g_rgProfileData = {"url":"https:\/\/steamcommunity.com\/profiles\/76561199124746
 """
 
 
+PUBLIC_GAMES_HTML = """
+<div class="gameList">
+  <div class="gameListRow" data-appid="570">
+    <div class="gameListRowItemName ellipsis">Dota 2</div>
+    <div class="gameListRowItem">
+      <div class="gameListRowItemLabel">PLAYTIME</div>
+      <div class="gameListRowItemValue">12.5 hrs on record</div>
+    </div>
+  </div>
+  <div class="gameListRow" data-appid="1149460">
+    <div class="gameListRowItemName ellipsis">Icarus</div>
+    <div class="gameListRowItem">
+      <div class="gameListRowItemLabel">PLAYTIME</div>
+      <div class="gameListRowItemValue">2 hrs on record</div>
+    </div>
+  </div>
+</div>
+"""
+
+
 class SteamProviderTests(unittest.TestCase):
     def test_parse_numeric_profile_and_vanity_profile(self):
         self.assertEqual(parse_steam_profile("https://steamcommunity.com/profiles/76561198000000000"), ("76561198000000000", None))
@@ -69,6 +89,7 @@ class SteamProviderTests(unittest.TestCase):
 
         self.assertEqual(library.steam_id, "76561198000000000")
         self.assertEqual(library.games[0]["appid"], 10)
+        self.assertTrue(library.complete)
         self.assertNotIn("test-key", repr(library))
 
     @patch("gamepulse.providers.steam.urllib.request.urlopen")
@@ -95,6 +116,17 @@ class SteamProviderTests(unittest.TestCase):
         self.assertEqual(library.source_name, "Public Steam profile page")
         self.assertEqual([item["appid"] for item in library.games], [570, 1149460])
         self.assertEqual(library.games[0]["playtime_forever"], 750)
+
+    @patch("gamepulse.providers.steam.urllib.request.urlopen")
+    def test_public_games_page_reads_all_visible_owned_games_and_playtime_without_api_key(self, urlopen):
+        urlopen.side_effect = [_TextResponse(PUBLIC_PROFILE_HTML), _TextResponse(PUBLIC_GAMES_HTML)]
+
+        library = SteamProvider(None).get_library("76561199124746372")
+
+        self.assertEqual(library.source_name, "Public Steam games page")
+        self.assertTrue(library.complete)
+        self.assertEqual([item["appid"] for item in library.games], [570, 1149460])
+        self.assertEqual([item["playtime_forever"] for item in library.games], [750, 120])
 
 
 if __name__ == "__main__":

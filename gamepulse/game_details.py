@@ -38,6 +38,10 @@ class GameDetails:
     review_catalogue: ReviewCatalogue
     analysis: ReviewAnalysis
 
+    @property
+    def steam_store_url(self) -> str:
+        return f"https://store.steampowered.com/app/{self.game.steam_app_id}"
+
 
 def _as_int(value, default: int = 0) -> int:
     return default if value is None else int(value)

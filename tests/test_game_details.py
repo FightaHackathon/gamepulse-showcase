@@ -45,6 +45,7 @@ class GameDetailsTests(unittest.TestCase):
             details = get_game_details(self._database(Path(temp_dir)), 10, review_limit=2)
 
         self.assertEqual(details.game.name, "Detail Quest")
+        self.assertEqual(details.steam_store_url, "https://store.steampowered.com/app/10")
         self.assertEqual(details.game.tags, ("Fantasy",))
         self.assertEqual(details.review_catalogue.review_count, 25)
         self.assertEqual(details.review_catalogue.recommended_count, 21)

@@ -4,11 +4,20 @@ from types import SimpleNamespace
 
 from gamepulse.catalog import PreferenceOptions
 from gamepulse.player_session import PlayerProfileSession, empty_profile_session
+from gamepulse.providers.steam import PlayerLibrary
 from gamepulse.recommendations import PlayerPreferences, Recommendation
-from gamepulse.ui.player_components import render_personalization, render_recommendation_card, render_recommendation_empty_state
+from gamepulse.ui.player_components import profile_library_rows, render_personalization, render_recommendation_card, render_recommendation_empty_state
 
 
 class _Form:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+
+class _Expander:
     def __enter__(self):
         return self
 
@@ -25,6 +34,7 @@ class _FakeStreamlit:
         self.markdowns = []
         self.buttons = []
         self.form_submit_kwargs = []
+        self.dataframes = []
 
     def subheader(self, value):
         self.subheader_value = value
@@ -57,6 +67,12 @@ class _FakeStreamlit:
 
     def markdown(self, value, **_kwargs):
         self.markdowns.append(value)
+
+    def expander(self, *_args, **_kwargs):
+        return _Expander()
+
+    def dataframe(self, value, **_kwargs):
+        self.dataframes.append(value)
 
 
 class PlayerModeStateTests(unittest.TestCase):
@@ -118,6 +134,46 @@ class PlayerModeStateTests(unittest.TestCase):
         self.assertIn("2 public library games", fake.successes[0])
         self.assertIn("Inferred preferences", " ".join(fake.captions))
         self.assertEqual(fake.buttons, ["Refresh library", "Clear Steam connection"])
+
+    def test_complete_profile_state_shows_playtime_coverage(self):
+        fake = _FakeStreamlit()
+        state = PlayerProfileSession(
+            status="connected",
+            profile_input="profile",
+            library=PlayerLibrary(
+                "76561198000000000",
+                (
+                    {"appid": 10, "name": "Long Session", "playtime_forever": 600},
+                    {"appid": 20, "name": "New Session", "playtime_forever": 120},
+                ),
+                "Public Steam games page",
+                True,
+            ),
+            owned_app_ids=frozenset({10, 20}),
+            preferences=PlayerPreferences(preferred_tags=("rpg",), preferred_genres=("action",)),
+        )
+
+        render_personalization(fake, state, self._settings(False), PreferenceOptions((), ()))
+
+        self.assertIn("12.0 hours tracked", " ".join(fake.captions))
+        self.assertIn("all visible games", " ".join(fake.captions))
+        self.assertEqual(len(fake.dataframes), 1)
+        self.assertEqual(len(fake.dataframes[0]), 2)
+
+    def test_profile_library_rows_expose_every_owned_game_and_hours(self):
+        library = PlayerLibrary(
+            "76561198000000000",
+            (
+                {"appid": 10, "name": "Long Session", "playtime_forever": 600, "playtime_2weeks": 30},
+                {"appid": 20, "name": "New Session", "playtime_forever": 120, "playtime_2weeks": 60},
+            ),
+        )
+
+        rows = profile_library_rows(library)
+
+        self.assertEqual([row["Game"] for row in rows], ["Long Session", "New Session"])
+        self.assertEqual([row["Hours played"] for row in rows], [10.0, 2.0])
+        self.assertEqual([row["Recent hours"] for row in rows], [0.5, 1.0])
 
 
 if __name__ == "__main__":

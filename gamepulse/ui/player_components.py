@@ -7,6 +7,7 @@ from typing import Literal
 from gamepulse.catalog import PreferenceOptions
 from gamepulse.config import Settings
 from gamepulse.player_session import PlayerProfileSession
+from gamepulse.providers.steam import PlayerLibrary
 from gamepulse.recommendations import PlayerPreferences, Recommendation
 
 
@@ -38,6 +39,51 @@ def _platform_labels(item) -> tuple[str, ...]:
         if value:
             labels.append(label)
     return tuple(labels) or ("Platform data unavailable",)
+
+
+def _library_is_complete(library: PlayerLibrary | None) -> bool:
+    return bool(library and (library.complete or library.source_name == "Steam Web API"))
+
+
+def _profile_playtime_caption(library: PlayerLibrary) -> str:
+    total_minutes = sum(max(0, int(item.get("playtime_forever") or 0)) for item in library.games if isinstance(item, dict))
+    return f"Profile signal · {len(library.games):,} games analyzed · {total_minutes / 60:,.1f} hours tracked"
+
+
+def _top_played_caption(library: PlayerLibrary, limit: int = 5) -> str:
+    played = [
+        (str(item.get("name") or f"Steam App {item.get('appid', '?')}"), max(0, int(item.get("playtime_forever") or 0)))
+        for item in library.games
+        if isinstance(item, dict) and int(item.get("playtime_forever") or 0) > 0
+    ]
+    played.sort(key=lambda item: (-item[1], item[0].casefold()))
+    if not played:
+        return "Most played · playtime unavailable"
+    return "Most played · " + " · ".join(f"{name} ({minutes / 60:,.1f}h)" for name, minutes in played[:limit])
+
+
+def profile_library_rows(library: PlayerLibrary) -> list[dict[str, object]]:
+    """Build a display-ready row for every owned game returned by Steam."""
+    rows = []
+    for item in library.games:
+        if not isinstance(item, dict):
+            continue
+        try:
+            app_id = int(item.get("appid"))
+        except (TypeError, ValueError):
+            continue
+        playtime = max(0, int(item.get("playtime_forever") or 0))
+        recent = max(0, int(item.get("playtime_2weeks") or 0))
+        rows.append(
+            {
+                "Game": str(item.get("name") or f"Steam App {app_id}"),
+                "App ID": app_id,
+                "Hours played": round(playtime / 60, 1),
+                "Recent hours": round(recent / 60, 1),
+            }
+        )
+    rows.sort(key=lambda row: (-float(row["Hours played"]), str(row["Game"]).casefold()))
+    return rows
 
 
 def _art_markup(url: str | None, alt: str, class_name: str = "gp-game-art") -> str:
@@ -85,28 +131,41 @@ def render_personalization(st, profile_state: PlayerProfileSession, settings: Se
         st.warning(profile_state.message)
     elif profile_state.status == "connected":
         count = len(profile_state.owned_app_ids)
-        source_name = profile_state.library.source_name if profile_state.library else "Steam Web API"
-        scope = "public library games" if source_name == "Steam Web API" else "recent public games"
+        library = profile_state.library
+        scope = "public library games" if library is None or _library_is_complete(library) else "recent public games"
+        if library:
+            st.caption(_profile_playtime_caption(library))
+            st.caption(_top_played_caption(library))
+            with st.expander(f"View all {len(library.games):,} analyzed games"):
+                rows = profile_library_rows(library)
+                if rows:
+                    st.dataframe(rows, hide_index=True, use_container_width=True)
+                else:
+                    st.info("No owned-game rows were returned by Steam.")
         st.success(f"Connected · {count:,} {scope} analyzed for this session.")
         inferred = profile_state.preferences
         chips = [*(f"Tag: {item}" for item in inferred.preferred_tags[:4]), *(f"Genre: {item}" for item in inferred.preferred_genres[:3])]
         if chips:
             st.caption("Inferred preferences · " + " · ".join(chips))
 
-    if profile_state.status == "connected" and profile_state.library and profile_state.library.source_name != "Steam Web API":
-        st.caption("Source: Public Steam profile page; recent games only.")
+    if profile_state.status == "connected" and profile_state.library:
+        source_name = profile_state.library.source_name
+        if _library_is_complete(profile_state.library):
+            st.caption(f"Source: {source_name}; all visible games and recorded playtime were analyzed.")
+        else:
+            st.caption(f"Source: {source_name}; recent games only.")
     elif profile_state.status != "connected" and not settings.steam_enabled:
         st.info("Steam Web API key is not configured; public-profile analysis is ready and manual mode remains available.")
-        st.caption("Without a key, GamePulse reads recent games shown on the public profile page. Add STEAM_WEB_API_KEY in Streamlit Cloud Secrets for the full library.")
+        st.caption("Without a key, GamePulse reads the public Steam games page for all visible games and playtime, then falls back to recent profile cards. Add STEAM_WEB_API_KEY for the official API path.")
 
     with st.form("gp_player_steam_form", clear_on_submit=False):
         profile = st.text_input(
             "Public Steam profile URL or SteamID",
             value=profile_state.profile_input,
             key="gp_player_steam_profile",
-            help="Only public profile data is read. Full-library mode requires public Game Details; no password or cookie is requested.",
+            help="Only public profile data is read. GamePulse uses public game rows and playtime; no password or cookie is requested.",
         )
-        st.caption("Public-page fallback uses recent games only; full-library analysis uses the Steam Web API when configured. The analysis stays in this browser session.")
+        st.caption("Public-page mode reads all visible owned games and recorded hours when available; the official Web API is used when configured. The analysis stays in this browser session.")
         submit_label = "Analyze public library" if settings.steam_enabled else "Analyze public profile"
         submitted = st.form_submit_button(
             submit_label,

@@ -27,6 +27,7 @@ def render_game_details(st, details: GameDetails) -> None:
     st.subheader(f"{game.name} details")
     if game.release_date:
         st.caption(f"Released {game.release_date}")
+    st.link_button("Open on Steam", details.steam_store_url, use_container_width=True)
 
     metric_columns = st.columns(4)
     metric_columns[0].metric("Price", "Free" if game.price_usd == 0 else f"${game.price_usd:.2f}" if game.price_usd is not None else "Unavailable")
