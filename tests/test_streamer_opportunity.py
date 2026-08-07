@@ -2,82 +2,130 @@ import unittest
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
+from gamepulse.providers.contracts import GameSignal, SignalSnapshot
+from gamepulse.providers.twitch import GameTrend
 from gamepulse.streamer_opportunity import (
     StreamerProfile,
+    audience_metric_label,
     evaluate_snapshot_freshness,
     find_matching_opportunity,
+    renormalized_weighted_score,
     score_band,
     score_game_opportunities,
 )
-from gamepulse.providers.twitch import GameTrend, Snapshot
+
+
+def signal(
+    game_id: str,
+    name: str,
+    *,
+    audience: float | None = 1000,
+    audience_metric: str | None = "steam_current_players",
+    competition: float | None = None,
+    competition_metric: str | None = None,
+    growth: float | None = 0.5,
+    tags: tuple[str, ...] = (),
+    sentiment: float | None = 0.8,
+) -> GameSignal:
+    return GameSignal(
+        game_id=game_id,
+        name=name,
+        audience_value=audience,
+        audience_metric=audience_metric,
+        competition_value=competition,
+        competition_metric=competition_metric,
+        growth_score=growth,
+        tags=tags,
+        genres=(),
+        platform="Steam" if str(audience_metric or "").startswith("steam") else "Twitch",
+        source_name="test source",
+        observed_at="2026-08-07T00:00:00Z",
+        confidence="test",
+        source_mode="Prepared",
+        sentiment_score=sentiment,
+    )
 
 
 class StreamerOpportunityTests(unittest.TestCase):
-    def test_balanced_demand_and_competition_beats_overcrowded_category(self):
+    def test_missing_competition_is_excluded_not_treated_as_zero_competition(self):
+        unknown = signal("unknown", "Unknown competition", competition=None, competition_metric=None)
+        observed_zero = signal("zero", "Observed zero", competition=0, competition_metric="twitch_live_channels")
+
+        results = {item.game_id: item for item in score_game_opportunities([unknown, observed_zero], StreamerProfile())}
+
+        self.assertIsNone(results["unknown"].components.competition)
+        self.assertIn("competition", results["unknown"].unavailable_components)
+        self.assertIn("excluded from scoring", " ".join(results["unknown"].reasons))
+        self.assertLessEqual(results["unknown"].score, results["zero"].score)
+
+    def test_unavailable_component_weights_are_renormalized(self):
+        result = renormalized_weighted_score(
+            {"audience": 0.8, "competition": None},
+            {"audience": 0.5, "competition": 0.5},
+        )
+
+        self.assertAlmostEqual(result, 0.8)
+
+    def test_higher_legitimate_growth_increases_opportunity_score(self):
+        low = signal("low", "Low growth", growth=0.2)
+        high = signal("high", "High growth", growth=0.9)
+
+        results = {item.game_id: item for item in score_game_opportunities([low, high], StreamerProfile())}
+
+        self.assertGreater(results["high"].score, results["low"].score)
+
+    def test_preference_tag_overlap_affects_score_and_reason(self):
+        tagged = signal("tagged", "Tagged", tags=("FPS",))
+        plain = signal("plain", "Plain", tags=("Puzzle",))
+
+        results = {item.game_id: item for item in score_game_opportunities([tagged, plain], StreamerProfile(preferred_tags=("fps",)))}
+
+        self.assertGreater(results["tagged"].score, results["plain"].score)
+        self.assertIn("Matches your preferred genre/tag signals", results["tagged"].reasons)
+
+    def test_results_are_deterministic(self):
         trends = [
-            GameTrend("balanced", "Balanced", 10000, 100, 0.4),
-            GameTrend("crowded", "Crowded", 50000, 5000, 0.4),
+            signal("a", "Alpha", audience=5000, growth=0.6),
+            signal("b", "Beta", audience=3000, growth=0.7),
         ]
+        profile = StreamerProfile(strategy="growth", channel_size_tier="mid-size")
 
-        results = score_game_opportunities(trends, StreamerProfile(preferred_tags=("FPS",)))
+        first = score_game_opportunities(trends, profile)
+        second = score_game_opportunities(trends, profile)
 
-        self.assertEqual(results[0].game_id, "balanced")
-        self.assertTrue(results[0].reasons)
+        self.assertEqual(first, second)
 
-    def test_opportunity_exposes_explainable_normalized_components(self):
-        result = score_game_opportunities(
-            [GameTrend("g1", "Example", 1000, 10, 0.5)],
-            StreamerProfile(channel_size_tier="emerging"),
-        )[0]
-
-        self.assertGreater(result.score, 0.0)
-        self.assertLessEqual(result.score, 1.0)
-        self.assertEqual(result.score_band, "Promising opportunity")
-        self.assertEqual(result.components.demand, 1.0)
-        self.assertGreaterEqual(result.components.reach, 0.0)
-        self.assertLessEqual(result.components.growth, 1.0)
-
-    def test_snapshot_freshness_distinguishes_live_fresh_and_stale_data(self):
-        now = datetime(2026, 8, 1, 12, tzinfo=timezone.utc)
-
-        live = Snapshot("Live", "2026-08-01T12:00:00Z", "Twitch Helix", [])
-        fresh = Snapshot("Demo", "2026-08-01T00:00:00Z", "fixture", [])
-        stale = Snapshot("Demo", "2026-07-20T00:00:00Z", "fixture", [])
+    def test_snapshot_freshness_supports_live_prepared_fresh_and_stale(self):
+        now = datetime(2026, 8, 7, 12, tzinfo=timezone.utc)
+        live = SignalSnapshot("Live", "2026-08-07T12:00:00Z", "provider", [])
+        prepared = SignalSnapshot("Prepared", "2026-08-01T00:00:00Z", "database", [])
+        fresh = SignalSnapshot("Imported", "2026-08-07T00:00:00Z", "snapshot", [])
+        stale = SignalSnapshot("Imported", "2026-07-20T00:00:00Z", "snapshot", [])
 
         self.assertEqual(evaluate_snapshot_freshness(live, now).status, "live")
+        self.assertEqual(evaluate_snapshot_freshness(prepared, now).status, "prepared")
         self.assertEqual(evaluate_snapshot_freshness(fresh, now).status, "fresh_snapshot")
         self.assertEqual(evaluate_snapshot_freshness(stale, now).status, "stale_snapshot")
+
+    def test_steam_player_metric_is_never_labelled_twitch_viewers(self):
+        self.assertEqual(audience_metric_label("steam_current_players"), "current Steam players")
+        self.assertNotIn("Twitch", audience_metric_label("steam_current_players"))
+        self.assertEqual(audience_metric_label("twitch_viewers"), "observed Twitch viewers")
+
+    def test_legacy_twitch_game_trend_still_scores(self):
+        result = score_game_opportunities([GameTrend("g1", "Example", 1000, 10, 0.5)], StreamerProfile())[0]
+
+        self.assertEqual(result.audience_metric, "twitch_viewers")
+        self.assertEqual(result.competition_metric, "twitch_live_channels")
+        self.assertEqual(result.viewer_count, 1000)
 
     def test_score_band_has_stable_labels(self):
         self.assertEqual(score_band(0.8), "Strong opportunity")
         self.assertEqual(score_band(0.6), "Promising opportunity")
         self.assertEqual(score_band(0.2), "Competitive opportunity")
 
-    def test_reach_strategy_and_channel_size_change_the_score(self):
-        trends = [
-            GameTrend("demand", "Demand", 10000, 1000, 0.2),
-            GameTrend("reachable", "Reachable", 5000, 50, 0.2),
-        ]
-
-        balanced = score_game_opportunities(trends, StreamerProfile(strategy="balanced"))
-        reach = score_game_opportunities(trends, StreamerProfile(strategy="reach"))
-        emerging = score_game_opportunities(trends, StreamerProfile(channel_size_tier="emerging"))
-        large = score_game_opportunities(trends, StreamerProfile(channel_size_tier="large"))
-
-        self.assertNotEqual([(item.game_id, item.score) for item in balanced], [(item.game_id, item.score) for item in reach])
-        self.assertNotEqual([(item.game_id, item.score) for item in emerging], [(item.game_id, item.score) for item in large])
-
-    def test_preferred_tags_add_a_small_explainable_bonus(self):
-        trend = GameTrend("g1", "Tagged", 1000, 10, 0.2, ("FPS",))
-
-        without_preference = score_game_opportunities([trend], StreamerProfile())[0]
-        with_preference = score_game_opportunities([trend], StreamerProfile(preferred_tags=("fps",)))[0]
-
-        self.assertGreater(with_preference.score, without_preference.score)
-        self.assertIn("matches your preferred category tags", with_preference.reasons)
-
     def test_selected_opportunity_matches_normalized_game_name(self):
-        opportunity = SimpleNamespace(game_id="twitch-123", name="Counter-Strike")
+        opportunity = SimpleNamespace(game_id="source-123", name="Counter-Strike")
 
         result = find_matching_opportunity([opportunity], "Counter Strike")
 
