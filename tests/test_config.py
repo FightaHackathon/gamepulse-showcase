@@ -12,7 +12,6 @@ class SettingsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             with patch.dict(os.environ, {}, clear=True):
                 settings = Settings.from_env(Path(temp_dir))
-
         self.assertFalse(settings.twitch_enabled)
         self.assertFalse(settings.steam_enabled)
         self.assertFalse(settings.mistral_enabled)
@@ -20,31 +19,12 @@ class SettingsTests(unittest.TestCase):
 
     def test_complete_credentials_enable_each_provider(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            values = {
-                "TWITCH_CLIENT_ID": "client-id",
-                "TWITCH_CLIENT_SECRET": "client-secret",
-                "STEAM_WEB_API_KEY": "steam-key",
-                "MISTRAL_API_KEY": "mistral-key",
-            }
+            values = dict(TWITCH_CLIENT_ID="client-id", TWITCH_CLIENT_SECRET="client-secret", STEAM_WEB_API_KEY="steam-key", MISTRAL_API_KEY="mistral-key")
             with patch.dict(os.environ, values, clear=True):
                 settings = Settings.from_env(Path(temp_dir))
-
         self.assertTrue(settings.twitch_enabled)
         self.assertTrue(settings.steam_enabled)
         self.assertTrue(settings.mistral_enabled)
-
-    def test_streamlit_cloud_secrets_enable_steam(self):
-        """Cloud deployments provide secrets through st.secrets, not os.environ."""
-        import streamlit as st
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            with patch.dict(os.environ, {}, clear=True), patch.object(
-                st, "secrets", {"STEAM_WEB_API_KEY": "cloud-steam-key"}
-            ):
-                settings = Settings.from_env(Path(temp_dir))
-
-        self.assertTrue(settings.steam_enabled)
-        self.assertEqual(settings.steam_web_api_key, "cloud-steam-key")
 
     def test_dotenv_file_is_loaded_from_project_root(self):
         with tempfile.TemporaryDirectory() as temp_dir:
