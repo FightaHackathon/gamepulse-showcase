@@ -1,11 +1,10 @@
 name: Desktop Tests
 
 on:
-  pull_request:
   push:
     branches:
       - local-desktop-app
-      - agent/desktop-source-neutral-signals
+      - 'agent/desktop-*'
 
 permissions:
   contents: read
