@@ -118,5 +118,6 @@ class CreatorDirectoryProvider:
             ]
         observed_at = max((creator.observed_at for creator in creators if creator.observed_at), default="")
         modes = {creator.source_mode for creator in creators}
-        mode = modes.pop() if len(modes) == 1 else "Mixed" if modes else "Unavailable"
-        return SignalSnapshot(mode, observed_at, f"Creator directory: {self.path.name}", creators, "mixed" if len(modes) > 1 else "directory")
+        mode = next(iter(modes)) if len(modes) == 1 else "Mixed" if modes else "Unavailable"
+        confidence = "mixed" if len(modes) > 1 else "directory"
+        return SignalSnapshot(mode, observed_at, f"Creator directory: {self.path.name}", creators, confidence)
