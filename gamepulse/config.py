@@ -22,7 +22,12 @@ def _path_setting(root: Path, name: str, default: str) -> Path:
 
 def _provider_mode(name: str) -> str:
     value = os.getenv(name, "auto").strip().casefold() or "auto"
-    allowed = {"auto", "steam", "public", "snapshot", "imported", "twitch", "directory"}
+    if name == "GAME_SIGNAL_PROVIDER":
+        allowed = {"auto", "steam", "public", "snapshot", "imported", "twitch"}
+    elif name == "CREATOR_PROVIDER":
+        allowed = {"auto", "directory", "snapshot", "imported", "twitch"}
+    else:
+        allowed = {"auto"}
     return value if value in allowed else "auto"
 
 
@@ -47,15 +52,40 @@ class Settings:
     @classmethod
     def from_env(cls, root: Path) -> "Settings":
         load_dotenv(root / ".env", override=False)
-        processed_dir = root / "data" / "processed" / os.getenv("GAMEPULSE_PROCESSED_DATE", "2026-08-01")
+        processed_dir = (
+            root
+            / "data"
+            / "processed"
+            / os.getenv("GAMEPULSE_PROCESSED_DATE", "2026-08-01")
+        )
         return cls(
             root=root,
             processed_dir=processed_dir,
-            database_path=_path_setting(root, "GAMEPULSE_DATABASE_PATH", "data/prototype/gamepulse_prototype.sqlite3"),
-            gamepulse_snapshot_path=_path_setting(root, "GAMEPULSE_SNAPSHOT_PATH", "data/demo/gamepulse_snapshot.json"),
-            creator_directory_path=_path_setting(root, "CREATOR_DIRECTORY_PATH", "data/manual/creators.csv"),
-            twitch_demo_snapshot=_path_setting(root, "TWITCH_DEMO_SNAPSHOT_PATH", "data/demo/twitch_snapshot.json"),
-            twitch_manual_snapshot=_path_setting(root, "TWITCH_SNAPSHOT_PATH", "data/manual/twitch_snapshot.json"),
+            database_path=_path_setting(
+                root,
+                "GAMEPULSE_DATABASE_PATH",
+                "data/prototype/gamepulse_prototype.sqlite3",
+            ),
+            gamepulse_snapshot_path=_path_setting(
+                root,
+                "GAMEPULSE_SNAPSHOT_PATH",
+                "data/demo/gamepulse_snapshot.json",
+            ),
+            creator_directory_path=_path_setting(
+                root,
+                "CREATOR_DIRECTORY_PATH",
+                "data/manual/creators.csv",
+            ),
+            twitch_demo_snapshot=_path_setting(
+                root,
+                "TWITCH_DEMO_SNAPSHOT_PATH",
+                "data/demo/twitch_snapshot.json",
+            ),
+            twitch_manual_snapshot=_path_setting(
+                root,
+                "TWITCH_SNAPSHOT_PATH",
+                "data/manual/twitch_snapshot.json",
+            ),
             game_signal_provider=_provider_mode("GAME_SIGNAL_PROVIDER"),
             creator_provider=_provider_mode("CREATOR_PROVIDER"),
             twitch_client_id=_optional("TWITCH_CLIENT_ID"),
@@ -74,7 +104,11 @@ class Settings:
     def twitch_snapshot_path(self) -> Path:
         """Legacy Twitch fallback path retained for the optional provider."""
 
-        return self.twitch_manual_snapshot if self.twitch_manual_snapshot.exists() else self.twitch_demo_snapshot
+        return (
+            self.twitch_manual_snapshot
+            if self.twitch_manual_snapshot.exists()
+            else self.twitch_demo_snapshot
+        )
 
     @property
     def steam_enabled(self) -> bool:

@@ -1,21 +1,21 @@
 # GamePulse Desktop Prototype
 
-GamePulse is a **local native desktop application** for exploring game-market intelligence from three perspectives: players, Twitch streamers, and game developers. The desktop branch keeps the existing prepared Steam/Twitch datasets and analysis engines, but replaces the Streamlit runtime with a polished PySide6 interface.
+GamePulse is a **local native PySide6 desktop application** for game-market intelligence across player, creator/streamer, and developer workflows. The default desktop path is source-neutral and works without Twitch credentials.
 
 ## Desktop experience
 
-The application now opens as one native window with four workspaces:
+The application opens as one native window with four workspaces:
 
-- **Overview** — a fast pulse check on the currently selected game and its public catalogue signals.
+- **Overview** — a fast pulse check on the selected game and its prepared public catalogue signals.
 - **Player** — catalogue search plus explainable recommendations using similarity, price, platform support, review quality, and hidden-gem discovery.
-- **Streamer** — Twitch category opportunity ranking using observed demand, channel competition, growth, and channel-size strategy.
-- **Developer** — market positioning, comparable games, review themes, directional opportunity scoring, and a 30-day review-activity forecast.
+- **Streamer** — opportunity ranking from legitimate activity signals such as Steam player activity, review momentum, preference fit, sentiment, promotions, freshness, and competition when a provider actually supplies it.
+- **Developer** — market positioning, comparable games, review themes, directional opportunity scoring, creator-fit recommendations, and a 30-day review-activity forecast.
 
-The UI uses a dark game-analytics visual system with a persistent navigation rail, metric cards, responsive tables, local-mode status, and clear source/disclaimer labels.
+The UI always keeps metric identity and provenance visible. **Steam current players or Steam peak CCU are not Twitch viewers.** If competition data is unavailable, GamePulse displays it as unavailable and excludes that component from scoring instead of treating it as zero competition.
 
 ## Run on Windows
 
-The dataset-inclusive repository stores large prepared assets through Git LFS. After cloning this branch:
+The repository stores large prepared assets through Git LFS. After cloning the desktop branch:
 
 ```powershell
 git lfs pull
@@ -25,7 +25,7 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-If the prepared SQLite database is already present, launch GamePulse with:
+If the prepared SQLite database is present, launch GamePulse with:
 
 ```powershell
 python app.py
@@ -40,50 +40,88 @@ python scripts\build_prototype_database.py --processed-dir data\processed\2026-0
 python app.py
 ```
 
-## Optional live credentials
+## Default no-Twitch data path
 
-Copy `.env.example` to `.env` and fill only the integrations you want to enable. The application can still run from local/demo data without credentials.
+No Twitch key is required for the normal desktop experience.
+
+Game-level signals default to the prepared Steam/public database. Creator recommendations default to the manual/opt-in creator directory plus compatible imported snapshot records. The bundled generic snapshot and demo creator records are explicitly labelled as demo data.
+
+Key source-neutral configuration values in `.env.example` include:
+
+```text
+GAME_SIGNAL_PROVIDER=auto
+CREATOR_PROVIDER=auto
+GAMEPULSE_DATABASE_PATH=data/prototype/gamepulse_prototype.sqlite3
+GAMEPULSE_SNAPSHOT_PATH=data/demo/gamepulse_snapshot.json
+CREATOR_DIRECTORY_PATH=data/manual/creators.csv
+```
+
+`auto` prefers the legitimate local/public sources available to the application and does not require Twitch.
+
+## Optional integrations
+
+Copy `.env.example` to `.env` and fill only integrations you intentionally want to enable:
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-Supported variables:
+Optional variables include:
 
-- `TWITCH_CLIENT_ID`
-- `TWITCH_CLIENT_SECRET`
-- `STEAM_WEB_API_KEY`
-- `MISTRAL_API_KEY` (reserved for optional future integration)
+- `TWITCH_CLIENT_ID` and `TWITCH_CLIENT_SECRET` — optional Twitch enhancement provider.
+- `TWITCH_SNAPSHOT_PATH` — optional authorized Twitch snapshot input.
+- `STEAM_WEB_API_KEY` — optional Steam profile personalization; prepared opportunity signals do not require it.
+- `STREAMSCHARTS_CLIENT_ID` and `STREAMSCHARTS_TOKEN` — reserved integration seam for a documented Streams Charts API only. GamePulse does not invent undocumented endpoints.
+- `MISTRAL_API_KEY` — reserved for optional future integration.
 
 `.env` is local-only and must never be committed.
+
+## Creator directory
+
+`data/manual/creators.csv` is the default creator source for the no-Twitch desktop path. Records include creator identity, platform, language, optional audience evidence, creator tier, tags, game history, observation date, source mode, and confidence.
+
+Creator-fit scoring can use:
+
+- selected-game history,
+- genre/tag overlap,
+- language when supplied,
+- requested creator size,
+- optional audience evidence,
+- explicit provenance.
+
+Missing audience data is excluded rather than fabricated.
 
 ## Architecture
 
 - `app.py` — native desktop launcher.
-- `gamepulse/desktop_app.py` — PySide6 application shell and Overview/Player/Streamer/Developer workspaces.
-- `gamepulse/desktop_theme.py` — desktop QSS visual system.
-- `gamepulse/desktop_models.py` — desktop presentation/formatting helpers.
-- `gamepulse/` — reusable recommendation, forecasting, review, provider, catalogue, and market-analysis logic.
-- `data/` — prepared/raw datasets, local demo snapshots, and the generated SQLite prototype database.
-- `tests/` — domain and desktop helper tests.
+- `gamepulse/desktop_app.py` — PySide6 Overview/Player/Streamer/Developer workspaces.
+- `gamepulse/providers/contracts.py` — source-neutral `GameSignal`, `CreatorSignal`, and `SignalSnapshot` contracts.
+- `gamepulse/providers/composite.py` — provider routing for prepared Steam/public data, creator directory/imported snapshots, and optional Twitch.
+- `gamepulse/providers/steam_signals.py` — no-credential prepared Steam/public opportunity signals.
+- `gamepulse/providers/creator_directory.py` — manual/opt-in creator records.
+- `gamepulse/providers/snapshot.py` — versioned generic snapshot normalization with legacy Twitch-snapshot compatibility.
+- `gamepulse/providers/twitch.py` — optional Twitch adapter; no longer an application requirement.
+- `gamepulse/streamer_opportunity.py` — source-neutral opportunity scoring with missing-component weight renormalization.
+- `gamepulse/streamer_fit.py` — source-neutral developer-to-creator fit scoring.
+- `gamepulse/desktop_theme.py` and `gamepulse/desktop_models.py` — native presentation layer.
+- `data/` — prepared/raw datasets, demo/imported snapshots, creator directory, and SQLite prototype database.
+- `tests/` — provider, scoring, catalogue, analysis, and desktop tests.
 
-Legacy Streamlit UI modules remain in `gamepulse/ui/` for reference during migration, but **`python app.py` does not start Streamlit or a web server**.
+Legacy Streamlit UI modules remain under `gamepulse/ui/` only as migration/reference code. **`python app.py` does not start Streamlit or a web server.**
 
-## Verify
+## Verify locally
 
 ```powershell
 python -m unittest discover -s tests -q
-python -m compileall -q app.py gamepulse scripts tests
+python -m compileall -q app.py gamepulse gamepulse_data scripts tests
 ```
 
-For headless CI environments that import Qt widgets, set:
+For a headless Linux environment that imports Qt widgets, set `QT_QPA_PLATFORM=offscreen` and install the required Qt runtime libraries (including EGL/OpenGL/XCB libraries).
 
-```powershell
-$env:QT_QPA_PLATFORM="offscreen"
-```
+The repository's desktop GitHub Actions workflow is manual-only; it does not automatically run on worker pushes.
 
-## Data and privacy
+## Data, privacy, and metric correctness
 
-Large raw archives, processed CSVs, and the local SQLite database are tracked with Git LFS. Review `DATASET_SOURCES.md` before redistribution because source licenses and terms apply to the datasets separately from the application code.
+Large raw archives, processed CSVs, and the local SQLite database are tracked with Git LFS. Review `DATASET_SOURCES.md` before redistribution because source licenses and terms apply separately from the application code.
 
-The Twitch demo fixture is a demonstration snapshot, not a current live observation. Ownership, gross scenarios, and other market values derived from public signals are estimates and are not verified Steam sales or revenue.
+Prepared Steam/SteamSpy/Kaggle values, ownership ranges, and gross scenarios are public or derived signals, not verified sales or revenue. Twitch data, when configured, is explicitly identified as Twitch data. Demo and manually supplied creator records are labelled with their source mode and confidence.

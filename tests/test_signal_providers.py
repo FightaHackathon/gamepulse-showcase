@@ -44,15 +44,68 @@ class SourceNeutralProviderTests(unittest.TestCase):
                    observed_at, steam_app_id, peak_ccu, player_metric, source_mode,
                    source_name, confidence
                ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            ("2026-08-07T00:00:00Z", 10, 4200, "current", "Live", "Steam public endpoint snapshot", "public"),
+            (
+                "2026-08-07T00:00:00Z",
+                10,
+                4200,
+                "current",
+                "Live",
+                "Steam public endpoint snapshot",
+                "public",
+            ),
         )
         connection.commit()
         connection.close()
         return path
 
+    def _creator_directory(self, root: Path) -> Path:
+        creators = root / "creators.csv"
+        creators.write_text(
+            "creator_id,name,platform,profile_url,language,avg_viewers,channel_size_tier,tags,games,observed_at,source,confidence\n"
+            "c1,Example Creator,YouTube,,en,320,emerging,FPS,Example Game,2026-08-07T00:00:00Z,manual,manual\n",
+            encoding="utf-8",
+        )
+        return creators
+
+    def _generic_snapshot(self, root: Path) -> Path:
+        path = root / "snapshot.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 2,
+                    "observed_at": "2026-08-07T00:00:00Z",
+                    "source_name": "imported fixture",
+                    "source_mode": "Imported",
+                    "games": [],
+                    "creators": [
+                        {
+                            "creator_id": "imported-1",
+                            "name": "Imported Creator",
+                            "platform": "YouTube",
+                            "game_id": None,
+                            "game_name": None,
+                            "audience_value": 450,
+                            "audience_metric": "avg_viewers",
+                            "language": "en",
+                            "channel_size_tier": "emerging",
+                            "tags": ["FPS"],
+                            "games": ["Example Game"],
+                            "source_mode": "Imported",
+                            "source_name": "imported fixture",
+                            "confidence": "imported",
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        return path
+
     def test_steam_provider_works_without_twitch_credentials(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            snapshot = SteamPublicGameSignalProvider(self._database(Path(temp_dir))).get_game_trends()
+            snapshot = SteamPublicGameSignalProvider(
+                self._database(Path(temp_dir))
+            ).get_game_trends()
 
         self.assertEqual(snapshot.mode, "Prepared")
         self.assertEqual(snapshot.data[0].audience_metric, "steam_current_players")
@@ -69,7 +122,9 @@ class SourceNeutralProviderTests(unittest.TestCase):
                 "c1,Example Creator,YouTube,,en,320,emerging,FPS|Indie,Example Game|Other,2026-08-07T00:00:00Z,creator_submitted,creator_submitted\n",
                 encoding="utf-8",
             )
-            result = CreatorDirectoryProvider(path).get_creators(game_name="Example Game")
+            result = CreatorDirectoryProvider(path).get_creators(
+                game_name="Example Game"
+            )
 
         self.assertEqual(result.data[0].tags, ("FPS", "Indie"))
         self.assertEqual(result.data[0].games, ("Example Game", "Other"))
@@ -93,17 +148,19 @@ class SourceNeutralProviderTests(unittest.TestCase):
             "observed_at": "2026-08-07T00:00:00Z",
             "source_name": "test snapshot",
             "source_mode": "Imported",
-            "games": [{
-                "game_id": "10",
-                "name": "Example",
-                "audience_value": 1000,
-                "audience_metric": "steam_current_players",
-                "competition_value": None,
-                "competition_metric": None,
-                "growth_score": 0.6,
-                "tags": ["FPS"],
-                "platform": "Steam",
-            }],
+            "games": [
+                {
+                    "game_id": "10",
+                    "name": "Example",
+                    "audience_value": 1000,
+                    "audience_metric": "steam_current_players",
+                    "competition_value": None,
+                    "competition_metric": None,
+                    "growth_score": 0.6,
+                    "tags": ["FPS"],
+                    "platform": "Steam",
+                }
+            ],
             "creators": [],
         }
 
@@ -116,27 +173,39 @@ class SourceNeutralProviderTests(unittest.TestCase):
         payload = {
             "observed_at": "2026-08-01T00:00:00Z",
             "source_name": "legacy fixture",
-            "games": [{"game_id": "g1", "name": "Example", "viewer_count": 100, "channel_count": 5}],
-            "streamers": [{"streamer_id": "s1", "name": "Creator", "game_id": "g1", "game_name": "Example"}],
+            "games": [
+                {
+                    "game_id": "g1",
+                    "name": "Example",
+                    "viewer_count": 100,
+                    "channel_count": 5,
+                }
+            ],
+            "streamers": [
+                {
+                    "streamer_id": "s1",
+                    "name": "Creator",
+                    "game_id": "g1",
+                    "game_name": "Example",
+                }
+            ],
         }
 
         result = normalize_snapshot(payload)
 
         self.assertEqual(result.games.data[0].audience_metric, "twitch_viewers")
-        self.assertEqual(result.games.data[0].competition_metric, "twitch_live_channels")
+        self.assertEqual(
+            result.games.data[0].competition_metric, "twitch_live_channels"
+        )
         self.assertEqual(result.creators.data[0].creator_id, "s1")
 
     def test_composite_auto_prefers_prepared_steam_and_directory(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            database = self._database(root)
-            creators = root / "creators.csv"
-            creators.write_text(
-                "creator_id,name,platform,profile_url,language,avg_viewers,channel_size_tier,tags,games,observed_at,source,confidence\n"
-                "c1,Example Creator,YouTube,,en,320,emerging,FPS,Example Game,2026-08-07T00:00:00Z,manual,manual\n",
-                encoding="utf-8",
+            provider = CompositeSignalProvider(
+                database_path=self._database(root),
+                creator_directory_path=self._creator_directory(root),
             )
-            provider = CompositeSignalProvider(database_path=database, creator_directory_path=creators)
 
             games = provider.get_game_trends()
             creator_snapshot = provider.get_creators(game_name="Example Game")
@@ -144,21 +213,65 @@ class SourceNeutralProviderTests(unittest.TestCase):
         self.assertEqual(games.data[0].platform, "Steam")
         self.assertEqual(creator_snapshot.data[0].name, "Example Creator")
 
+    def test_directory_mode_does_not_silently_merge_imported_creators(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            provider = CompositeSignalProvider(
+                database_path=self._database(root),
+                creator_directory_path=self._creator_directory(root),
+                snapshot_path=self._generic_snapshot(root),
+                creator_provider_mode="directory",
+            )
+
+            creators = provider.get_creators(game_name="Example Game").data
+
+        self.assertEqual([item.name for item in creators], ["Example Creator"])
+
+    def test_auto_mode_can_merge_directory_and_imported_creators(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            provider = CompositeSignalProvider(
+                database_path=self._database(root),
+                creator_directory_path=self._creator_directory(root),
+                snapshot_path=self._generic_snapshot(root),
+                creator_provider_mode="auto",
+            )
+
+            creators = provider.get_creators(game_name="Example Game").data
+
+        self.assertEqual(
+            {item.name for item in creators},
+            {"Example Creator", "Imported Creator"},
+        )
+
     def test_missing_twitch_credentials_load_snapshot_without_error(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "snapshot.json"
-            path.write_text(json.dumps({
-                "schema_version": 2,
-                "observed_at": "2026-08-07T00:00:00Z",
-                "source_name": "demo",
-                "source_mode": "Demo",
-                "games": [{
-                    "game_id": "10", "name": "Example", "audience_value": 100,
-                    "audience_metric": "steam_current_players", "competition_value": None,
-                    "competition_metric": None, "growth_score": 0.5, "tags": [], "platform": "Steam"
-                }],
-                "creators": [],
-            }), encoding="utf-8")
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 2,
+                        "observed_at": "2026-08-07T00:00:00Z",
+                        "source_name": "demo",
+                        "source_mode": "Demo",
+                        "games": [
+                            {
+                                "game_id": "10",
+                                "name": "Example",
+                                "audience_value": 100,
+                                "audience_metric": "steam_current_players",
+                                "competition_value": None,
+                                "competition_metric": None,
+                                "growth_score": 0.5,
+                                "tags": [],
+                                "platform": "Steam",
+                            }
+                        ],
+                        "creators": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
 
             snapshot = TwitchProvider(path).get_game_trends()
 
