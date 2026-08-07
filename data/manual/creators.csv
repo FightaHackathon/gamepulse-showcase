@@ -1,0 +1,7 @@
+creator_id,name,platform,profile_url,language,avg_viewers,channel_size_tier,tags,games,observed_at,source,confidence
+example-creator-001,GamePulse Demo FPS Creator,Twitch,,en,320,emerging,FPS|Competitive|Shooter,Counter-Strike 2|Apex Legends|THE FINALS,2026-08-07T00:00:00Z,competition_demo,demo
+example-creator-002,GamePulse Demo Indie Builder,YouTube,,en,180,emerging,Indie|Sandbox|Building,Terraria|Core Keeper|Stardew Valley,2026-08-07T00:00:00Z,competition_demo,demo
+example-creator-003,GamePulse Demo Strategy Host,YouTube,,en,850,emerging,Strategy|Simulation|Management,Cities: Skylines|RimWorld|Factorio,2026-08-07T00:00:00Z,competition_demo,demo
+example-creator-004,GamePulse Demo RPG Explorer,Twitch,,en,2400,mid-size,RPG|Adventure|Story Rich,Baldur's Gate 3|Cyberpunk 2077|The Witcher 3: Wild Hunt,2026-08-07T00:00:00Z,competition_demo,demo
+example-creator-005,GamePulse Demo Cozy Creator,YouTube,,en,540,emerging,Cozy|Casual|Farming,Stardew Valley|Dinkum|Coral Island,2026-08-07T00:00:00Z,competition_demo,demo
+example-creator-006,GamePulse Demo Variety Creator,Twitch,,en,7200,large,Action|Indie|Multiplayer,,2026-08-07T00:00:00Z,competition_demo,demo

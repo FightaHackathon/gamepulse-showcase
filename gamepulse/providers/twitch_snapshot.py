@@ -1,35 +1,23 @@
-"""Validation and import helpers for authorized Twitch snapshot exports.
+"""Backward-compatible import helpers for GamePulse signal snapshots.
 
-This intentionally accepts user-provided/API-authorized JSON only. It does not
-fetch or scrape twitch.tv pages.
+The original module name is retained because scripts and older callers import
+it, but validation is now handled by the generic versioned snapshot layer.
 """
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-REQUIRED_TOP_LEVEL = {"observed_at", "games", "streamers"}
+from gamepulse.providers.snapshot import import_snapshot, normalize_snapshot
 
 
 def validate_snapshot(payload: object) -> dict:
+    """Validate legacy or schema-v2 snapshots and return the original object."""
+
+    normalize_snapshot(payload)
     if not isinstance(payload, dict):
-        raise ValueError("Twitch snapshot must be a JSON object")
-    missing = REQUIRED_TOP_LEVEL - set(payload)
-    if missing:
-        raise ValueError(f"Twitch snapshot missing fields: {', '.join(sorted(missing))}")
-    if not isinstance(payload["games"], list) or not isinstance(payload["streamers"], list):
-        raise ValueError("Twitch snapshot games and streamers must be arrays")
-    for item in payload["games"]:
-        if not isinstance(item, dict) or not item.get("game_id") or not item.get("name"):
-            raise ValueError("Each game requires game_id and name")
-    for item in payload["streamers"]:
-        if not isinstance(item, dict) or not item.get("streamer_id") or not item.get("name"):
-            raise ValueError("Each streamer requires streamer_id and name")
+        raise ValueError("GamePulse snapshot must be a JSON object")
     return payload
 
 
-def import_snapshot(source: Path, destination: Path) -> None:
-    payload = validate_snapshot(json.loads(source.read_text(encoding="utf-8")))
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+__all__ = ["import_snapshot", "validate_snapshot", "Path"]
