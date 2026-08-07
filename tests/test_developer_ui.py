@@ -1,8 +1,12 @@
 import unittest
 
-from streamlit.testing.v1 import AppTest
+try:
+    from streamlit.testing.v1 import AppTest
+except ModuleNotFoundError:  # Desktop branch intentionally has no Streamlit runtime.
+    AppTest = None
 
 
+@unittest.skipIf(AppTest is None, "legacy Streamlit UI is not installed on the desktop branch")
 class DeveloperModeUITests(unittest.TestCase):
     def test_developer_mode_exposes_comparables_and_bounded_fit_scores(self):
         app = AppTest.from_file("app.py", default_timeout=20).run()
