@@ -1,10 +1,7 @@
 name: Desktop Tests
 
 on:
-  push:
-    branches:
-      - local-desktop-app
-      - 'agent/desktop-*'
+  workflow_dispatch:
 
 permissions:
   contents: read
