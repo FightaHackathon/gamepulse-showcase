@@ -1,7 +1,10 @@
 import unittest
 from types import SimpleNamespace
 
-from streamlit.testing.v1 import AppTest
+try:
+    from streamlit.testing.v1 import AppTest
+except ModuleNotFoundError:  # Desktop branch intentionally has no Streamlit runtime.
+    AppTest = None
 
 from gamepulse.providers.twitch import Snapshot
 from gamepulse.streamer_opportunity import evaluate_snapshot_freshness
@@ -61,6 +64,7 @@ class StreamerModeStateTests(unittest.TestCase):
         self.assertIn("recent growth signal is positive", fake.markdowns[0])
 
 
+@unittest.skipIf(AppTest is None, "legacy Streamlit UI is not installed on the desktop branch")
 class StreamerModeUITests(unittest.TestCase):
     def test_streamer_mode_exposes_opportunity_dashboard(self):
         app = AppTest.from_file("app.py", default_timeout=15).run()
