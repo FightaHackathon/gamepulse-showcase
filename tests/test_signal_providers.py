@@ -1,4 +1,3 @@
-import csv
 import json
 import sqlite3
 import tempfile
@@ -8,7 +7,7 @@ from pathlib import Path
 from gamepulse.database import initialize_schema
 from gamepulse.providers.composite import CompositeSignalProvider
 from gamepulse.providers.creator_directory import CreatorDirectoryError, CreatorDirectoryProvider
-from gamepulse.providers.snapshot import load_snapshot, normalize_snapshot
+from gamepulse.providers.snapshot import normalize_snapshot
 from gamepulse.providers.steam_signals import SteamPublicGameSignalProvider
 from gamepulse.providers.twitch import TwitchProvider
 
