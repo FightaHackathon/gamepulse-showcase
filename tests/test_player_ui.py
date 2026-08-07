@@ -1,8 +1,12 @@
 import unittest
 
-from streamlit.testing.v1 import AppTest
+try:
+    from streamlit.testing.v1 import AppTest
+except ModuleNotFoundError:  # Desktop branch intentionally has no Streamlit runtime.
+    AppTest = None
 
 
+@unittest.skipIf(AppTest is None, "legacy Streamlit UI is not installed on the desktop branch")
 class PlayerModeUITests(unittest.TestCase):
     def _player(self):
         app = AppTest.from_file("app.py", default_timeout=15).run()
@@ -36,10 +40,7 @@ class PlayerModeUITests(unittest.TestCase):
     def test_player_mode_shows_a_broader_recommendation_window(self):
         app = self._player()
 
-        card_count = sum(
-            '<article class="gp-player-card' in item.value
-            for item in app.markdown
-        )
+        card_count = sum('<article class="gp-player-card' in item.value for item in app.markdown)
 
         self.assertGreaterEqual(card_count, 24)
         ranked_caption = next(item.value for item in app.caption if "games ranked" in item.value)
