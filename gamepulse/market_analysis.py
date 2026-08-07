@@ -113,7 +113,7 @@ def analyze_developer_opportunity(
         "Public audience signal is available from owner or CCU estimates." if audience_available else "Public audience signal is unavailable.",
         "Review health is visible from collected recommendations." if review_available else "Review health is unavailable because no reviews were collected.",
         "Review momentum is estimated from the recent activity baseline." if momentum_available else "Review momentum is unavailable because there is not enough activity history.",
-        f"Creator coverage includes {observed_creator_count:,} observed Twitch profiles with an average fit of {creator_fit:.0%}." if observed_creator_count else "Creator coverage is unavailable in the current Twitch snapshot.",
+        f"Creator coverage includes {observed_creator_count:,} configured creator profiles with an average fit of {creator_fit:.0%}." if observed_creator_count else "Creator coverage is unavailable from the currently configured creator providers.",
         f"The catalog provides {max(0, comparable_count):,} comparable game signals." if comparable_count else "Comparable-game coverage is unavailable from shared tags or genres.",
     )
     return DeveloperOpportunity(
