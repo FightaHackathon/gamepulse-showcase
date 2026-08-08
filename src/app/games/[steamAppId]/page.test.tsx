@@ -4,18 +4,20 @@ import "@testing-library/jest-dom/vitest";
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getGame } from "@/lib/api/client";
+import { getGame, getGameHistory } from "@/lib/api/client";
 
 import GameDetailPage from "./page";
 
 vi.mock("@/lib/api/client", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api/client")>("@/lib/api/client");
-  return { ...actual, getGame: vi.fn() };
+  return { ...actual, getGame: vi.fn(), getGameHistory: vi.fn() };
 });
 
 const mockedGetGame = vi.mocked(getGame);
+const mockedGetGameHistory = vi.mocked(getGameHistory);
 
 beforeEach(() => {
+  mockedGetGameHistory.mockResolvedValue([]);
   mockedGetGame.mockResolvedValue({
     steam_app_id: 10,
     name: "Example Game",
@@ -65,7 +67,7 @@ describe("game detail page", () => {
     expect(screen.getByRole("heading", { name: "Example Game" })).toBeInTheDocument();
     expect(screen.getByAltText("Example Game artwork")).toBeInTheDocument();
     expect(screen.getByText("$19.99")).toBeInTheDocument();
-    expect(screen.getByText("91%")) .toBeInTheDocument();
+    expect(screen.getAllByText("91%").length).toBeGreaterThan(0);
     expect(screen.getByText("1.5K")).toBeInTheDocument();
     expect(screen.getByText("450")).toBeInTheDocument();
 
