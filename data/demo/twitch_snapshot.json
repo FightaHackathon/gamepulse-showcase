@@ -1,0 +1,16 @@
+{
+  "observed_at": "2026-08-01T00:00:00Z",
+  "source_name": "GamePulse prototype demonstration fixture; not a live Twitch observation",
+  "games": [
+    {"game_id": "10", "name": "Counter-Strike", "viewer_count": 98000, "channel_count": 1800, "growth_score": 0.35, "tags": ["FPS", "Competitive"]},
+    {"game_id": "730", "name": "Counter-Strike 2", "viewer_count": 128000, "channel_count": 2100, "growth_score": 0.42, "tags": ["FPS", "Competitive"]},
+    {"game_id": "578080", "name": "PUBG: BATTLEGROUNDS", "viewer_count": 76000, "channel_count": 1600, "growth_score": 0.18, "tags": ["FPS", "Battle Royale"]},
+    {"game_id": "105600", "name": "Terraria", "viewer_count": 12000, "channel_count": 310, "growth_score": 0.65, "tags": ["Indie", "Sandbox"]}
+  ],
+  "streamers": [
+    {"streamer_id": "demo-0", "name": "DemoClassicFPSCreator", "game_id": "10", "game_name": "Counter-Strike", "viewer_count": 1100, "language": "en", "channel_size_tier": "emerging", "tags": ["FPS", "Competitive"]},
+    {"streamer_id": "demo-1", "name": "DemoFPSCreator", "game_id": "730", "game_name": "Counter-Strike 2", "viewer_count": 4200, "language": "en", "channel_size_tier": "mid-size", "tags": ["FPS", "Competitive"]},
+    {"streamer_id": "demo-2", "name": "DemoEmergingCreator", "game_id": "730", "game_name": "Counter-Strike 2", "viewer_count": 420, "language": "en", "channel_size_tier": "emerging", "tags": ["FPS"]},
+    {"streamer_id": "demo-3", "name": "DemoVarietyCreator", "game_id": "105600", "game_name": "Terraria", "viewer_count": 800, "language": "en", "channel_size_tier": "emerging", "tags": ["Indie", "Sandbox"]}
+  ]
+}

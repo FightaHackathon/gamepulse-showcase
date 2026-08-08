@@ -1,0 +1,67 @@
+{
+  "schema_version": 2,
+  "observed_at": "2026-08-07T00:00:00Z",
+  "source_name": "GamePulse bundled source-neutral demo snapshot",
+  "source_mode": "Demo",
+  "confidence": "demo",
+  "games": [
+    {
+      "game_id": "730",
+      "name": "Counter-Strike 2",
+      "audience_value": 945000,
+      "audience_metric": "steam_current_players",
+      "competition_value": null,
+      "competition_metric": null,
+      "growth_score": 0.64,
+      "sentiment_score": 0.86,
+      "tags": ["FPS", "Competitive", "Shooter"],
+      "genres": ["Action"],
+      "platform": "Steam"
+    },
+    {
+      "game_id": "105600",
+      "name": "Terraria",
+      "audience_value": 58000,
+      "audience_metric": "steam_current_players",
+      "competition_value": null,
+      "competition_metric": null,
+      "growth_score": 0.58,
+      "sentiment_score": 0.97,
+      "tags": ["Sandbox", "Survival", "Indie"],
+      "genres": ["Action", "Adventure", "Indie"],
+      "platform": "Steam"
+    },
+    {
+      "game_id": "413150",
+      "name": "Stardew Valley",
+      "audience_value": 51000,
+      "audience_metric": "steam_current_players",
+      "competition_value": null,
+      "competition_metric": null,
+      "growth_score": 0.61,
+      "sentiment_score": 0.98,
+      "tags": ["Farming", "Cozy", "Pixel Graphics"],
+      "genres": ["Indie", "RPG", "Simulation"],
+      "platform": "Steam"
+    }
+  ],
+  "creators": [
+    {
+      "creator_id": "snapshot-example-001",
+      "name": "GamePulse Snapshot Demo Creator",
+      "platform": "YouTube",
+      "profile_url": null,
+      "game_id": null,
+      "game_name": null,
+      "audience_value": 410,
+      "audience_metric": "avg_viewers",
+      "language": "en",
+      "channel_size_tier": "emerging",
+      "tags": ["Indie", "Sandbox"],
+      "games": ["Terraria", "Core Keeper"],
+      "source_mode": "Demo",
+      "source_name": "GamePulse bundled demo snapshot",
+      "confidence": "demo"
+    }
+  ]
+}
