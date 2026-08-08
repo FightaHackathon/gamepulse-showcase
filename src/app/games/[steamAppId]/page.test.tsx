@@ -1,0 +1,77 @@
+// @vitest-environment jsdom
+
+import "@testing-library/jest-dom/vitest";
+import { render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { getGame } from "@/lib/api/client";
+
+import GameDetailPage from "./page";
+
+vi.mock("@/lib/api/client", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api/client")>("@/lib/api/client");
+  return { ...actual, getGame: vi.fn() };
+});
+
+const mockedGetGame = vi.mocked(getGame);
+
+beforeEach(() => {
+  mockedGetGame.mockResolvedValue({
+    steam_app_id: 10,
+    name: "Example Game",
+    release_date: "2026-07-01",
+    price_usd: 19.99,
+    owners_low: null,
+    owners_high: null,
+    peak_ccu: null,
+    total_reviews: 12000,
+    review_score: 0.91,
+    header_image_url: "https://cdn.akamai.steamstatic.com/steam/apps/10/header.jpg",
+    short_description: "A co-op action game built for repeat sessions.",
+    tags: ["Co-op", "Action"],
+    genres: ["Action"],
+    steam_store_url: "https://store.steampowered.com/app/10",
+    metrics: [
+      {
+        metric: "current_players",
+        value_numeric: 1500,
+        value_text: null,
+        observed_at: "2026-08-08T06:30:00Z",
+        source_name: "Steam Web API",
+        source_mode: "public_api",
+        confidence: "high",
+        source_url: null,
+        signal_type: "steam",
+      },
+      {
+        metric: "average_viewers_30d",
+        value_numeric: 450,
+        value_text: null,
+        observed_at: "2026-08-08T06:30:00Z",
+        source_name: "TwitchTracker",
+        source_mode: "public_30d_summary",
+        confidence: "medium",
+        source_url: null,
+        signal_type: "streaming",
+      },
+    ],
+  });
+});
+
+describe("game detail page", () => {
+  it("renders summary first with an explicit safe Steam link", async () => {
+    render(await GameDetailPage({ params: Promise.resolve({ steamAppId: "10" }) }));
+
+    expect(screen.getByRole("heading", { name: "Example Game" })).toBeInTheDocument();
+    expect(screen.getByAltText("Example Game artwork")).toBeInTheDocument();
+    expect(screen.getByText("$19.99")).toBeInTheDocument();
+    expect(screen.getByText("91%")) .toBeInTheDocument();
+    expect(screen.getByText("1.5K")).toBeInTheDocument();
+    expect(screen.getByText("450")).toBeInTheDocument();
+
+    const steamLink = screen.getByRole("link", { name: "View on Steam" });
+    expect(steamLink).toHaveAttribute("href", "https://store.steampowered.com/app/10");
+    expect(steamLink).toHaveAttribute("target", "_blank");
+    expect(steamLink).toHaveAttribute("rel", "noreferrer noopener");
+  });
+});
