@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from gamepulse.db.models import GameModel, SteamSnapshotModel, StreamingSnapshotModel, TrendScoreModel
 from gamepulse.db.repositories import GameRepository
+from gamepulse.trend_artifact import load_trend_artifact
 from gamepulse.web_api.dependencies import get_db_session
 
 
@@ -58,11 +59,12 @@ def _normalized(values: list[float]) -> list[float]:
 
 
 def _latest_trend(session: Session, app_id: int, audience: str) -> TrendScoreModel | None:
-    return session.scalars(
+    trend = session.scalars(
         select(TrendScoreModel)
         .where(TrendScoreModel.steam_app_id == app_id, TrendScoreModel.audience == audience)
         .order_by(TrendScoreModel.observed_at.desc(), TrendScoreModel.id.desc())
     ).first()
+    return trend or load_trend_artifact().get((app_id, audience))
 
 
 def _normalized_component(value: object) -> float | None:
