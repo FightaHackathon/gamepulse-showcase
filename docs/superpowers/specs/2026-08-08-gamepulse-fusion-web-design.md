@@ -3,32 +3,32 @@
 **Date:** 2026-08-08  
 **Status:** Approved design  
 **Target branch:** `feature/gamepulse-fusion-web`  
-**Production target:** Vercel  
+**Production target:** Vercel
 
 ## 1. Product objective
 
-GamePulse becomes a clean, public, Steam/PC-focused web application that helps three distinct audiences answer three distinct questions:
+GamePulse becomes a clean, public, Steam/PC-focused web application built around three separate questions:
 
 - **Player:** What should I play next?
 - **Streamer:** What should I stream as a new or zero-audience channel?
 - **Developer:** What game opportunity should I explore, and what evidence supports it?
 
-The public application must preserve the strongest recommendation, trend, mapping, and market-analysis logic already present across the existing repository branches while replacing the Streamlit/native-desktop presentation with a dedicated web frontend.
+The web release preserves useful recommendation, trend, mapping, forecasting, and market-analysis logic already present across the repository while replacing the Streamlit/native-desktop presentation with a dedicated Next.js frontend.
 
-The first release is deliberately focused on Steam/PC. Console and mobile support are out of scope.
+Steam/PC is the only platform scope for v1. Console and mobile are explicitly out of scope.
 
 ## 2. Design principles
 
-1. **One audience, one page.** Player, Streamer, and Developer are separate workspaces.
-2. **Simple first, depth on demand.** Summary cards and recommendations appear before detailed charts.
-3. **Evidence before generated ideas.** Market facts, derived scores, and AI-generated concepts are visually and semantically separated.
-4. **No required Twitch or Streams Charts credentials.** The product must remain useful without them.
-5. **Cached by default.** Normal page loads read normalized snapshots from Postgres instead of waiting for multiple third-party providers.
-6. **Graceful degradation.** One failed provider must never blank or crash a page.
-7. **Explainable scores.** Recommendations expose the important score factors and concise reasons.
-8. **Real game presentation.** Use Steam artwork and metadata instead of spreadsheet-like rows.
-9. **No login in v1.** The shareable Vercel deployment is immediately usable.
-10. **Session-only user secrets.** A user-supplied Steam Web API key must not be persisted.
+1. **One audience, one workspace.** Player, Streamer, and Developer are separate pages.
+2. **Simple first, depth on demand.** Summary cards appear before detailed charts.
+3. **Evidence before generated ideas.** Market facts, derived scores, and generated concepts are visually separated.
+4. **No required Twitch or Streams Charts credentials.** The product remains useful without them.
+5. **Cached by default.** Normal page loads read normalized Postgres snapshots rather than waiting for multiple external providers.
+6. **Graceful degradation.** One provider failure degrades individual metrics, not an entire page.
+7. **Explainable scores.** Recommendations expose normalized factor scores and concise reasons.
+8. **Image-first game presentation.** Use Steam artwork and metadata instead of spreadsheet-like rows.
+9. **No login in v1.** Anyone with the Vercel link can use the product.
+10. **No persistent user secrets.** User-provided API keys exist only in browser runtime memory for the active page session and are discarded when the page/tab is closed or reloaded.
 
 ## 3. Repository fusion strategy
 
@@ -36,76 +36,71 @@ The implementation must not perform a blind multi-branch merge.
 
 ### 3.1 Base
 
-Create all production work from `main`.
+All production work starts from `main`.
 
-`main` remains the source for the stable Player foundation, existing curated/localized presentation ideas, recommendation/forecasting foundations, game details, market analysis, and current prototype dataset.
+Use `main` for the Player foundation, curated/localized content and presentation ideas, recommendation/forecasting foundations, game-detail logic, market analysis, and current prototype dataset.
 
 ### 3.2 Streamer branch inputs
 
-Selectively port the useful logic from:
+Selectively port useful logic from:
 
 `agent/gamepulse-twitch-streamer-recommendations`
 
-High-value candidates include:
+Priority candidates:
 
 - `gamepulse/growth_windows.py`
 - `gamepulse/game_mapping.py`
 - `gamepulse/creator_aggregation.py`
 - expanded `streamer_fit.py`
 - expanded `streamer_opportunity.py`
-- Twitch/Steam alias mapping data
-- snapshot collection logic
+- Twitch/Steam alias mappings
+- snapshot collection architecture
 - provider/growth/mapping/provenance tests
 
-This branch is compatible with `main` history and should be treated as the strongest existing source of tested streamer logic.
+This branch shares history with `main` and is the preferred source for tested streamer logic.
 
 ### 3.3 SteamSpy/developer branch inputs
 
-Selectively port useful concepts and code from:
+Selectively port useful code and concepts from:
 
 `codex/twitchtracker-steamspy-estimates`
 
-This branch must **not** be merged wholesale because it has unrelated Git history and replaces the web prototype entry point with a native desktop application.
+Do **not** merge this branch wholesale because it has unrelated Git history and replaces the web entry point with a native desktop application.
 
-Candidates to port or adapt include:
+Priority candidates:
 
-- provider contracts and composition patterns
+- provider contracts/composition
 - provider caching patterns
 - SteamSpy integration
 - Steam public-signal helpers
-- developer intelligence logic
-- developer prediction logic
+- developer intelligence
+- developer prediction
 - source/confidence metadata patterns
 
-The following must not become the public application architecture:
-
-- native desktop UI
-- monolithic desktop app
-- credential-dependent streamer behavior
-- crowded desktop presentation
+Do not preserve the native desktop UI, monolithic desktop architecture, credential-dependent streamer behavior, or crowded desktop presentation.
 
 ### 3.4 Conflict rule
 
-When branches contain competing implementations, priority is:
+When implementations conflict, priority is:
 
 1. behavior required by this specification;
 2. tested domain logic that can be isolated from UI;
-3. `main` compatibility;
+3. compatibility with `main` data and semantics;
 4. simpler implementation.
 
-No old UI is preserved merely because it already exists.
+No legacy UI is retained merely because it already exists.
 
-## 4. Public information architecture
+## 4. Information architecture
 
 ### 4.1 Landing page
 
-The first page contains a short GamePulse introduction and exactly three primary mode choices:
+The first page is intentionally simple and contains a short introduction plus three primary cards:
 
 - **Player — Find what to play**
 - **Streamer — Find what to stream**
 - **Developer — Find what to build**
 
-The landing page must not contain dense market dashboards or multiple charts.
+No dense market dashboard appears on the landing page.
 
 Global navigation:
 
@@ -122,13 +117,13 @@ Game cards are image-first and use Steam artwork when available.
 
 Default card content is limited to:
 
-- image
-- game title
-- one primary score or status
+- artwork
+- title
+- one primary score/status
 - at most two supporting metrics
-- short recommendation/trend reason
+- one short explanation
 
-Clicking a card opens the internal GamePulse game-detail page. It does not immediately redirect to Steam.
+Clicking a game opens the internal GamePulse detail route rather than immediately leaving for Steam.
 
 ## 5. Player mode
 
@@ -136,13 +131,13 @@ Clicking a card opens the internal GamePulse game-detail page. It does not immed
 
 Primary input is a Steam profile URL.
 
-Steam-profile personalization is unlocked with a user-provided Steam Web API key when required by the Steam endpoint. The key is session-only.
+Steam-profile personalization uses a user-provided Steam Web API key when required by Steam. The key follows the session-secret rules in Section 15.
 
-### 5.2 Output sections
+### 5.2 Results
 
 #### Play Next From Your Library
 
-Ranks games already owned by the player.
+Ranks games the user already owns.
 
 #### Discover Something New
 
@@ -150,7 +145,7 @@ Ranks catalog games the user does not own but is likely to enjoy.
 
 ### 5.3 Ranking objective
 
-Player recommendations balance:
+Player ranking balances:
 
 - personal fit from library/playtime patterns
 - genre/tag similarity
@@ -162,7 +157,7 @@ Popularity alone must not dominate personal fit.
 
 ### 5.4 Explainability
 
-Each recommendation displays an overall score and compact factor breakdown, for example:
+Each recommendation exposes:
 
 - Personal fit
 - Review quality
@@ -170,39 +165,48 @@ Each recommendation displays an overall score and compact factor breakdown, for 
 - Trend momentum
 - Overall recommendation score
 
-The exact weights may differ by available data, but the scoring service must expose normalized factor scores and the final weighted score so the frontend can explain the result.
+The scoring service returns each factor normalized to 0–100 plus the final weighted score. Missing factors are omitted and remaining weights are renormalized rather than treated as zero.
+
+Initial default weights for a fully populated recommendation are:
+
+- personal fit: 45%
+- review quality: 20%
+- current activity: 15%
+- trend momentum: 20%
+
+These weights are configuration constants covered by tests, not user-facing controls in v1.
 
 ## 6. Streamer mode
 
 ### 6.1 Purpose
 
-Streamer mode is a **cold-start simulator** for a new or empty channel. It must not require an established Twitch account or historical channel analytics.
+Streamer mode is a **cold-start simulator** for a new or empty channel. It does not require an established Twitch account or channel history.
 
 ### 6.2 Simple simulator
 
-The default form may include:
+The default form contains optional fields for:
 
 - preferred genres
-- casual vs competitive preference
-- solo vs multiplayer preference
-- language/region
+- casual / balanced / competitive preference
+- solo / multiplayer / either preference
+- language
+- region
 
-All are optional except the action to run the simulation.
+Running the simulator without preferences is valid and returns general opportunities.
 
 ### 6.3 Advanced simulator
 
-Advanced inputs can include:
+Advanced mode adds optional fields for:
 
-- available streaming hours
-- language/region
-- hardware constraints
-- game budget
-- preferred game types
+- weekly streaming hours
+- typical streaming time window
+- hardware capability tier
+- maximum game purchase price
 - content style
 
-### 6.4 Optimization objective
+### 6.4 Objectives
 
-The user can switch between:
+Users can switch between:
 
 - **Discoverability**
 - **Audience Potential**
@@ -210,35 +214,38 @@ The user can switch between:
 
 Default: **Balanced Growth**.
 
-The opportunity engine considers, where available:
+The opportunity engine uses available signals for:
 
 - viewer demand
-- number of competing channels
+- competing channels
 - viewer-to-channel ratio
 - category growth
 - Steam player momentum
-- game fit
+- game/profile fit
 - volatility/stability
 
-A large Twitch category may legitimately rank below a smaller category if a zero-audience creator is likely to be buried by competition.
+A very large category may rank below a smaller category when a zero-audience creator is likely to be buried by competition.
 
 ### 6.5 Output
 
-Streamer recommendations must include:
+Streamer results contain:
 
 - ranked games/categories
 - opportunity score
-- compact breakdown of demand, competition, discoverability, momentum, and fit
+- demand score
+- competition/discoverability score
+- momentum score
+- fit score when preferences exist
 - short explanation
-- visible data freshness and confidence
+- freshness/confidence status
 
-The page should show a small number of high-value charts rather than a dense analytics wall.
+The page uses a small number of focused charts rather than a dense analytics wall.
 
 ## 7. Developer mode
 
-Developer mode uses a progressive evidence-to-concept flow.
+Developer mode follows a progressive evidence-to-concept flow.
 
-### 7.1 Stage 1 — Market dashboard
+### 7.1 Market dashboard
 
 Show concise evidence for:
 
@@ -251,32 +258,32 @@ Show concise evidence for:
 - ownership estimates where available
 - price bands
 
-### 7.2 Stage 2 — Opportunity cards
+### 7.2 Opportunity cards
 
-Each opportunity includes:
+Each opportunity contains:
 
-- market segment label
+- market-segment label
 - opportunity score
 - demand indicator
 - competition/saturation indicator
 - streaming fit
 - confidence
-- concise evidence summary
+- evidence summary
 
-### 7.3 Stage 3 — Explore opportunity
+### 7.3 Explore opportunity
 
-Opening an opportunity shows supporting games, charts, source data, risks, and why the opportunity was detected.
+Opening an opportunity shows supporting games, charts, source data, risks, and the reason the segment was detected.
 
-### 7.4 Stage 4 — Suggest direction
+### 7.4 Suggest direction
 
-GamePulse may translate the evidence into a product direction, but it must clearly label the direction as a recommendation rather than market fact.
+GamePulse may translate the evidence into a proposed product direction. The direction must be labeled as a recommendation, not a market fact.
 
-### 7.5 Stage 5 — Generate mini game brief
+### 7.5 Generate mini game brief
 
-The generated brief includes:
+The brief contains:
 
 - working concept/name
-- genre and subgenre
+- genre/subgenre
 - core gameplay loop
 - 3–5 key mechanics
 - target players
@@ -287,22 +294,24 @@ The generated brief includes:
 - saturation/risk summary
 - evidence-backed rationale
 
-A full production roadmap, team plan, or detailed commercial forecast is out of scope for v1.
+GamePulse must generate a usable brief even when no LLM key is configured. The baseline generator is deterministic and template/rule-based from the selected opportunity and its evidence. If a server-side Mistral key or a session-only user Mistral key is available, an optional enhancement pass may improve wording/ideation without changing source facts, scores, comparable games, or confidence values.
+
+A full production roadmap, staffing plan, or detailed commercial forecast is out of scope for v1.
 
 ## 8. Game-detail page
 
-Route pattern:
+Route:
 
 `/games/[steamAppId]`
 
 ### 8.1 Summary section
 
-The top of the page stays visually simple and includes:
+The top of the page contains:
 
 - large Steam artwork/header
 - title
 - short description
-- current price when available
+- price when available
 - review summary
 - current/recent player activity
 - concise trend state
@@ -310,66 +319,62 @@ The top of the page stays visually simple and includes:
 
 ### 8.2 Deeper analysis
 
-Below the fold, add focused sections for:
+Below the summary, add focused sections for:
 
 - Steam player activity chart
 - streaming trend chart
 - review breakdown
 - market position / ownership estimates
-- genre/tags
-- similar/comparable games
+- genres/tags
+- comparable games
 - recommendation reason
 
-When the page was opened from a Player, Streamer, or Developer recommendation, mode-specific explanation may be shown without changing the core game record.
+When opened from Player, Streamer, or Developer, the page may show mode-specific context without changing the canonical game record.
 
 ## 9. Visual design system
 
-The approved direction is clean and restrained, not a dense analytics terminal.
+The approved direction is clean and restrained rather than a dense analytics terminal.
 
 ### 9.1 Layout rules
 
 - generous whitespace
-- large content cards
-- clear section hierarchy
+- large cards
+- clear hierarchy
 - one primary chart per analytical section where practical
 - responsive desktop/tablet/mobile layouts
 - image-first game presentation
 - subtle hover/focus states
-- skeleton loaders for network data
-- no giant all-modes dashboard
+- skeleton loaders
+- no all-modes dashboard
 
 ### 9.2 Style
 
-- modern dark-mode-first product aesthetic
+- modern dark-mode-first aesthetic
 - restrained purple/violet accent
-- high contrast text
+- high-contrast typography
 - minimal decorative gradients
-- consistent rounded card surfaces
+- consistent rounded surfaces
 - restrained animation
 
-The design should feel closer to a modern game discovery product plus analytics than to a BI terminal.
+The interface should feel like a modern game-discovery product with analytics, not a BI terminal.
 
-## 10. Web architecture
+## 10. Architecture
 
 ### 10.1 Frontend
 
-Use Next.js/React for the public interface.
-
-Responsibilities:
+Use Next.js/React for:
 
 - routing
 - forms
-- card/detail presentation
+- cards/detail presentation
 - charts
-- session-scoped settings
-- loading and error states
+- browser-runtime session settings
+- loading/error states
 - responsive behavior
 
 ### 10.2 Python analytics API
 
-Keep reusable Python intelligence and expose it behind a web API.
-
-Responsibilities:
+Reuse Python domain intelligence behind web endpoints for:
 
 - recommendation scoring
 - trend calculations
@@ -378,42 +383,31 @@ Responsibilities:
 - Steam-profile processing
 - streamer opportunity scoring
 - developer opportunity scoring
-- concept input preparation
+- deterministic concept generation and optional AI enhancement input preparation
 
-The Python layer must be UI-agnostic.
+The Python layer is UI-agnostic.
 
 ### 10.3 Database
 
-Use durable cloud Postgres, deployed through a Vercel-compatible provider. Neon Postgres through the Vercel Marketplace is the preferred v1 deployment choice.
+Use durable cloud Postgres. Neon Postgres through the Vercel Marketplace is the preferred v1 deployment.
 
-Migrate useful SQLite prototype data into Postgres instead of discarding it.
+Migrate useful SQLite prototype data into Postgres rather than discarding it.
 
 ## 11. Data model
 
-Minimum logical tables/entities:
+Minimum logical entities:
 
 ### `games`
 
-Canonical Steam game identity and normalized metadata.
-
-Key fields:
-
-- Steam App ID
-- title
-- canonical slug
-- Steam URL
-- artwork URLs
-- release date
-- developer/publisher
-- genres/tags
+Canonical Steam identity and normalized metadata including App ID, title, Steam URL, artwork URLs, release date, developer/publisher, genres, and tags.
 
 ### `game_prices`
 
-Historical/current price snapshots.
+Historical/current price observations.
 
 ### `steam_snapshots`
 
-Player activity observations and Steam-derived public signals.
+Player activity and permitted Steam-derived public signals.
 
 ### `streaming_snapshots`
 
@@ -421,7 +415,7 @@ Normalized streaming/category observations.
 
 ### `steamspy_snapshots`
 
-Ownership and market estimates with estimate-range/confidence metadata.
+Ownership/market estimates plus estimate range and confidence metadata.
 
 ### `review_snapshots`
 
@@ -429,156 +423,155 @@ Review count and sentiment observations.
 
 ### `trend_scores`
 
-Derived normalized trend and opportunity metrics by game and evaluation window.
+Derived trend/opportunity metrics by game and evaluation window.
 
 ### `source_status`
 
-Latest success/failure/freshness state for each provider.
+Latest provider health/freshness state.
 
 ### `refresh_runs`
 
-Provider refresh execution history and errors.
+Refresh execution history, item counts, timestamps, and errors.
+
+No user API keys are stored in any table.
 
 ## 12. Provider policy
 
 ### 12.1 Steam
 
-Steam is the canonical game identifier and principal game metadata source.
-
-Use permitted Steam endpoints/store data for:
-
-- App ID identity
-- metadata
-- artwork
-- price/store URL
-- reviews where accessible
-- current player signals where accessible
-- user library/profile personalization when the user supplies a Steam Web API key
+Steam is the canonical game identifier and principal metadata source. Use permitted Steam endpoints/store data for App identity, metadata, artwork, price/store links, reviews where accessible, current-player signals where accessible, and user library/profile personalization with a user key.
 
 ### 12.2 SteamSpy
 
-SteamSpy is an estimate source, not ground truth.
-
-Ownership must be presented as an estimate/range with confidence where possible. Do not label ownership estimates as exact sales.
-
-SteamSpy failure must not prevent Player, Streamer, or Developer pages from loading.
+SteamSpy is an estimate source, not ground truth. Ownership is presented as an estimate/range with confidence when possible and is never labeled as exact sales. SteamSpy failure must not prevent any mode from loading.
 
 ### 12.3 TwitchTracker
 
-Use TwitchTracker only through a permitted documented/basic API or other explicitly allowed interface. Do not scrape TwitchTracker HTML.
-
-Use available category/game summaries as streaming demand/competition inputs.
+Use TwitchTracker only through a documented/permitted API or explicitly allowed interface. Do not scrape TwitchTracker HTML. The application must not require an end user to supply Twitch credentials. If the permitted TwitchTracker interface is unavailable or later requires credentials the deployment does not have, disable live TwitchTracker enrichment and use stored snapshots/other permitted signals.
 
 ### 12.4 SullyGnome
 
-SullyGnome may be used as a public validation/enrichment source only where the method of access is permitted and stable. It must remain optional rather than a single point of failure.
+SullyGnome may be used only through an access method that is permitted and stable. It is optional validation/enrichment and never a single point of failure.
 
 ### 12.5 SteamDB
 
-SteamDB may be used manually during development as a validation/reference source.
+SteamDB may be used manually for development validation/reference. Automated SteamDB scraping/crawling is excluded unless explicit permission is obtained and documented. Production should reproduce useful SteamDB-style insights from permitted Steam sources plus GamePulse history.
 
-Automated SteamDB scraping/crawling is excluded from v1 unless explicit permission is obtained. The production system should reproduce useful SteamDB-style insights from permitted underlying Steam data and GamePulse's own stored history.
+### 12.6 Credentials not required
 
-### 12.6 Twitch and Streams Charts credentials
-
-The production product must not require:
+The normal product must not require:
 
 - Twitch Client ID
 - Twitch Client Secret
 - Streams Charts client/token credentials
 
-Compatibility hooks may remain internal if useful, but these credentials must not be required or presented as normal setup fields.
+These fields are not shown in normal Settings.
 
 ## 13. Snapshot and caching policy
 
-Normal user requests read cached, normalized Postgres data.
+Normal user requests read cached normalized Postgres data.
 
-Initial refresh policy:
+Initial target cadence:
 
 - Steam current-player signals for tracked/ranked games: hourly
-- streaming/category signals: every 6 hours
+- permitted streaming/category signals: every 6 hours
 - SteamSpy estimates: daily
-- review/price changes: daily
+- review and price observations: daily
 - relatively static Steam metadata/artwork: weekly, with on-demand refresh for missing records
 
-If Vercel plan limits prevent the desired cron frequency, use GitHub Actions or another signed scheduler to call the same protected refresh endpoint. The application logic must not depend on the scheduler vendor.
+Refresh work is processed in bounded batches and records progress in `refresh_runs` so one long provider job is not required to finish in a single serverless invocation.
 
-Historical charts are built from GamePulse's stored snapshots.
+If Vercel plan limits prevent a desired schedule, GitHub Actions or another signed scheduler calls the same protected refresh endpoints. Domain logic does not depend on the scheduler vendor.
+
+Historical charts are built from GamePulse snapshots.
 
 ## 14. Freshness and confidence
 
-Every externally derived metric exposed in the UI must be capable of showing:
+Every external/derived metric exposed in a detailed view can report:
 
 - source
-- last updated time
-- freshness/staleness state
-- confidence when the value is estimated or derived
+- last updated timestamp
+- fresh/stale state
+- confidence when estimated/derived
 
-The UI may suppress these details in compact cards, but they must be available on details/analysis views.
+Compact cards may hide these details, but details/analysis pages must expose them.
 
-## 15. Settings and secrets
+## 15. Settings and session secrets
 
 ### 15.1 No login
 
 There is no account system in v1.
 
-### 15.2 Steam Web API key
+### 15.2 User-provided keys
 
-The Settings page allows a user to enter a Steam Web API key for Steam-profile personalization.
+Settings supports:
 
-Rules:
+- **Steam Web API key** — unlocks Steam-profile personalization when required.
+- **Mistral API key (optional)** — enhances generated Developer concept wording/ideation; never required for the core flow.
 
-- stored only in the active session
-- never written to Postgres
-- never committed to Git
-- never written to browser `localStorage`
-- never written to permanent cookies
-- never surfaced back to the client once submitted to a server-side session mechanism
-- disappears when the session ends
+Each user-provided key:
 
-### 15.3 Data-source status
+- exists only in JavaScript runtime memory for the active tab/page session;
+- is never written to Postgres;
+- is never committed to Git;
+- is never written to `localStorage` or `sessionStorage`;
+- is never written to cookies;
+- is sent over HTTPS only with requests that require it;
+- is discarded by the server after the individual request and is not logged;
+- is lost when the page is reloaded or the tab is closed.
 
-Settings should show simple source health such as:
+This intentionally favors security and demo simplicity over convenience.
+
+### 15.3 Owner/server keys
+
+The deployment owner may configure optional server-side provider keys through Vercel environment variables. These values are never returned to clients and do not create an end-user setup requirement.
+
+### 15.4 Source status
+
+Settings shows simple status for:
 
 - GamePulse database
 - Steam metadata/activity
 - streaming statistics
 - SteamSpy
-- Steam profile personalization
+- Steam-profile personalization
+- optional AI enhancement
 
-Do not expose confusing unused credential fields.
+Do not show unused Twitch/Streams Charts credential fields.
 
 ## 16. Failure and fallback behavior
 
-Provider failures must degrade individual metrics, not whole pages.
-
-### Streaming provider unavailable
+### Streaming source unavailable
 
 Use the latest stored streaming snapshot and label it stale when appropriate.
 
 ### SteamSpy unavailable
 
-Hide/degrade ownership estimates and continue ranking using other factors.
+Hide/degrade ownership estimates and continue using other factors.
 
 ### Steam current-player request unavailable
 
-Use the latest stored observation and mark freshness accordingly.
+Use the latest stored observation and expose staleness.
 
 ### Steam profile key missing/invalid
 
-Keep the general application usable and clearly explain that personalized Steam-library lookup requires a valid key.
+Keep the general application usable and explain that personalized library lookup needs a valid key.
+
+### LLM unavailable
+
+Use the deterministic Developer brief generator.
 
 ### Artwork unavailable
 
 Use a branded GamePulse placeholder without layout collapse.
 
-### API/analytics error
+### Internal/API error
 
-Render a user-facing recoverable error state. Never expose Python stack traces in production.
+Render a recoverable user-facing error. Never expose Python stack traces in production.
 
 ## 17. API boundaries
 
-The exact transport can evolve, but the frontend/backend boundary should expose stable resources conceptually equivalent to:
+Frontend/backend resources should be stable and conceptually equivalent to:
 
 - `GET /api/games/{appid}`
 - `GET /api/games/{appid}/history`
@@ -590,101 +583,77 @@ The exact transport can evolve, but the frontend/backend boundary should expose 
 - `GET /api/sources/status`
 - protected refresh endpoints for scheduled ingestion
 
-Responses should return normalized UI-ready models rather than exposing provider-specific raw payloads.
+Responses return normalized UI-ready models rather than raw provider payloads.
 
 ## 18. Deployment
 
 ### 18.1 Vercel
 
-The public web application is deployed to Vercel and must produce shareable preview URLs from the fusion branch before production promotion.
+The public web application is deployed to Vercel. The fusion branch must produce a shareable preview deployment before production promotion.
 
 ### 18.2 Git workflow
 
 - feature work occurs on `feature/gamepulse-fusion-web`
 - preview deployment validates the branch
-- production promotion happens only after end-to-end and UI review
-- `main` remains protected from unvalidated direct replacement
+- production promotion occurs only after end-to-end, provider-fallback, and UI review
+- `main` is not replaced by an unvalidated build
 
 ### 18.3 Environment configuration
 
-Server-side secrets/configuration must use Vercel environment variables or linked integration credentials. Never commit real keys.
+Server-side configuration and secrets use Vercel environment variables or linked integrations. Real keys are never committed.
 
 ## 19. Testing strategy
 
-### 19.1 Python unit tests
+### Python unit tests
 
-Cover:
+Cover normalization, trend calculations, player weights, streamer objectives, developer opportunity scoring, mapping/aliases, deterministic concept generation, confidence, and freshness handling.
 
-- normalization
-- trend calculations
-- score weights
-- player recommendation factors
-- streamer objectives
-- developer opportunity scoring
-- mapping/aliases
-- confidence/freshness handling
+Reuse/adapt the strongest tests from the streamer branch.
 
-Reuse and adapt the strongest tests from the streamer branch.
+### Provider tests
 
-### 19.2 Provider tests
+Mock timeouts, malformed payloads, unavailable sources, missing fields, stale caches, and rate limits.
 
-Mock:
+### Frontend/component tests
 
-- timeouts
-- malformed payloads
-- unavailable source
-- missing fields
-- stale cache
-- rate-limit responses
+Cover landing cards, forms, game cards, score breakdowns, detail sections, source/freshness labels, skeletons, and errors.
 
-### 19.3 Frontend/component tests
+### End-to-end flows
 
-Cover:
-
-- landing mode cards
-- forms
-- game cards
-- score breakdowns
-- game-detail sections
-- source/freshness labels
-- skeleton/error states
-
-### 19.4 End-to-end flows
-
-Required successful flows:
-
-1. Landing → Player → Steam profile → recommendations → game details.
-2. Landing → Streamer → cold-start simulation → ranked opportunities → game details.
-3. Landing → Developer → opportunity → evidence → suggested direction → mini game brief.
-4. Settings → session Steam key → Player personalization.
-5. Provider failure → cached fallback with visible stale/freshness state.
+1. Landing → Player → Steam profile → recommendations → Game Detail.
+2. Landing → Streamer → cold-start simulation → ranked opportunities → Game Detail.
+3. Landing → Developer → opportunity → evidence → direction → mini game brief.
+4. Settings → runtime-only Steam key → Player personalization.
+5. Provider failure → cached fallback with stale/freshness state.
+6. LLM unavailable → deterministic Developer mini brief still succeeds.
 
 ## 20. Security and privacy
 
 - no account collection in v1
-- no permanent storage of user Steam API keys
+- no persistent user API keys
 - no secrets in client bundles
-- protected refresh endpoints use a server-side secret/token
-- sanitize/validate Steam profile URLs and all user input
-- enforce outbound request timeouts and allowlisted providers
-- avoid storing unnecessary user profile data after a recommendation request
+- protected refresh endpoints use server-side authentication
+- sanitize/validate Steam profile URLs and all user inputs
+- enforce outbound timeouts and allowlisted providers
+- do not persist unnecessary Steam-profile data after recommendation processing
+- redact secrets from logs/errors
 
 ## 21. Accessibility
 
 Minimum v1 requirements:
 
-- keyboard-accessible navigation and cards
+- keyboard-accessible navigation/cards
 - visible focus states
 - semantic headings
 - sufficient contrast
-- labels for form controls
-- chart summaries available as text
-- no critical meaning conveyed by color alone
+- labels for controls
+- text summaries for charts
+- no critical meaning conveyed only by color
 
 ## 22. Non-goals for v1
 
-- console game support
-- mobile game support
+- console games
+- mobile games
 - user accounts
 - permanent saved profiles
 - social features
@@ -692,52 +661,52 @@ Minimum v1 requirements:
 - full game-production plans
 - automated SteamDB scraping
 - dependence on private Twitch/Streams Charts credentials
-- preserving the native desktop UI
+- preservation of the native desktop UI
 
 ## 23. Implementation sequence
 
 1. Create the fusion branch from `main`.
-2. Inventory and migrate useful existing dataset/schema content.
+2. Inventory/migrate useful existing data.
 3. Define Postgres schema and migration/seed tooling.
-4. Isolate/port domain logic from `main`, streamer branch, and SteamSpy/developer branch.
-5. Implement provider contracts, normalization, caching, source status, and scheduled ingestion.
-6. Add/port Python unit and provider tests.
+4. Isolate/port domain logic from `main`, the streamer branch, and the SteamSpy/developer branch.
+5. Implement provider contracts, normalization, caching, source status, and batched scheduled ingestion.
+6. Add/port Python unit/provider tests.
 7. Build the Next.js design system and global navigation.
 8. Build the landing page.
-9. Build shared game cards and Game Detail page.
+9. Build shared game cards and Game Detail.
 10. Build Player mode.
-11. Build Streamer cold-start simulator and its three objectives.
+11. Build the Streamer cold-start simulator and three objectives.
 12. Build Developer evidence → opportunity → direction → mini-brief flow.
-13. Build Settings and session-only Steam key handling.
+13. Build Settings and runtime-only secret handling.
 14. Configure scheduled refreshes and Postgres deployment.
-15. Add frontend/component tests and end-to-end tests.
-16. Deploy a Vercel preview from the fusion branch.
-17. Perform visual/responsive/accessibility QA against the approved clean mockup direction.
-18. Fix regressions and provider fallback issues.
+15. Add frontend/component and end-to-end tests.
+16. Deploy a Vercel preview.
+17. Perform responsive/accessibility/visual QA against the approved clean direction.
+18. Fix regressions and fallback issues.
 19. Promote only the validated deployment.
 
 ## 24. Acceptance criteria
 
-The design is implemented successfully when all of the following are true:
+Implementation is successful when:
 
 - The Vercel URL opens without login and shows a clean three-mode landing page.
 - Player, Streamer, and Developer are separate pages.
-- Game cards contain real game artwork when available and open internal GamePulse detail pages.
-- Every game detail page has a working **View on Steam** action.
-- Player mode supports both owned-library and new-game recommendations.
-- Player recommendations expose a compact factor score breakdown.
-- Streamer mode works for a zero-audience channel without requiring Twitch credentials.
-- Streamer mode supports Discoverability, Audience Potential, and Balanced Growth objectives.
-- Developer mode presents evidence before recommendations and can generate the defined mini game brief.
-- Market/generated content is clearly distinguished.
+- Game cards use real artwork when available and open internal GamePulse details.
+- Game Details includes a working **View on Steam** action.
+- Player supports both owned-library and new-game recommendations.
+- Player recommendations expose the defined compact factor breakdown.
+- Streamer works for a zero-audience channel without requiring Twitch credentials.
+- Streamer supports Discoverability, Audience Potential, and Balanced Growth.
+- Developer presents evidence before recommendations and generates the defined mini game brief without requiring an LLM.
+- Optional AI enhancement cannot alter source facts/scores without explicit recalculation by deterministic analytics logic.
 - The app works without Twitch Client ID/secret and without Streams Charts credentials.
-- Steam-profile personalization can use a session-only user Steam API key.
-- User Steam API keys are not persisted.
+- Steam-profile personalization can use a runtime-only Steam API key.
+- User-provided API keys are never persisted.
 - Normal pages read cached Postgres snapshots and remain usable during provider outages.
 - Source freshness/staleness is visible in detailed views.
-- SteamSpy estimates are labeled as estimates, not exact sales.
-- Automated SteamDB scraping is absent unless explicit permission is later documented.
+- SteamSpy ownership is labeled as an estimate, not exact sales.
+- Automated SteamDB scraping is absent unless permission is documented.
 - Historical charts use stored GamePulse snapshots.
-- Existing useful streamer/mapping tests are preserved or equivalently replaced.
-- End-to-end tests cover all three primary mode flows and provider fallback.
-- The final UI follows the approved clean, spacious, image-rich design rather than the crowded desktop layout.
+- Useful existing streamer/mapping tests are preserved or equivalently replaced.
+- End-to-end tests cover all three mode flows, provider fallback, and no-LLM Developer generation.
+- The final UI follows the approved clean, spacious, image-rich direction rather than the crowded desktop layout.
