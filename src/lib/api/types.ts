@@ -48,3 +48,85 @@ export type SourceStatus = {
 export type SourcesResponse = {
   sources: SourceStatus[];
 };
+
+export type PlayerFactor = {
+  score: number | null;
+  weight: number;
+};
+
+export type PlayerRecommendation = {
+  app_id: number;
+  steam_app_id: number;
+  name: string;
+  score: number;
+  header_image_url: string | null;
+  review_score: number | null;
+  current_players: number | null;
+  steam_store_url: string;
+  explanation: string;
+  factor_breakdown: {
+    personal_fit: PlayerFactor;
+    reviews: PlayerFactor;
+    activity: PlayerFactor;
+    momentum: PlayerFactor;
+  };
+};
+
+export type PlayerAnalyzeResponse = {
+  recommendations: PlayerRecommendation[];
+  profile: string;
+  source_name: string;
+  library_complete: boolean;
+};
+
+export type StreamerRecommendation = {
+  steam_app_id: number;
+  name: string;
+  header_image_url: string | null;
+  steam_store_url: string;
+  opportunity_score: number;
+  breakdown: Record<string, number>;
+  evidence: string[];
+  reason: string;
+};
+
+export type StreamerSimulationResponse = {
+  simulator: boolean;
+  mode: string;
+  recommendations: StreamerRecommendation[];
+};
+
+export type DeveloperOpportunity = {
+  steam_app_id: number;
+  name: string;
+  genre: string[];
+  score: number;
+  signals: Record<string, number>;
+  evidence: string[];
+  header_image_url: string | null;
+  steam_store_url: string;
+};
+
+export type DeveloperOpportunitiesResponse = {
+  opportunities: DeveloperOpportunity[];
+};
+
+export type DeveloperConceptResponse = {
+  data_evidence: {
+    selected_game: string;
+    signals: Record<string, number>;
+    observations: string[];
+  };
+  ai_generated_idea: {
+    title: string;
+    genre: string;
+    gameplay_loop: string;
+    mechanics: string[];
+    target_player: string;
+    multiplayer_or_solo: string;
+    steam_price_range: string;
+    comparable_games: string[];
+    opportunity_score: number;
+    risks: string[];
+  };
+};

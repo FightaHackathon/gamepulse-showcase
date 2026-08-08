@@ -1,4 +1,13 @@
-import type { GameDetail, GameHistory, SourceStatus, SourcesResponse } from "./types";
+import type {
+  DeveloperConceptResponse,
+  DeveloperOpportunitiesResponse,
+  GameDetail,
+  GameHistory,
+  PlayerAnalyzeResponse,
+  SourceStatus,
+  SourcesResponse,
+  StreamerSimulationResponse,
+} from "./types";
 
 export class ApiError extends Error {
   status: number;
@@ -60,4 +69,30 @@ export async function getGameHistory(appId: number, metric: string): Promise<Gam
 export async function getSourceStatus(): Promise<SourceStatus[]> {
   const response = await apiFetch<SourcesResponse>("/api/status/sources");
   return response.sources;
+}
+
+export function analyzePlayer(profileUrl: string, steamWebApiKey?: string): Promise<PlayerAnalyzeResponse> {
+  return apiFetch<PlayerAnalyzeResponse>("/api/player/analyze", {
+    method: "POST",
+    headers: steamWebApiKey ? { "X-GamePulse-Steam-Key": steamWebApiKey } : undefined,
+    body: JSON.stringify({ steam_profile_url: profileUrl }),
+  });
+}
+
+export function simulateStreamer(mode: string, genres: string[] = []): Promise<StreamerSimulationResponse> {
+  return apiFetch<StreamerSimulationResponse>("/api/streamer/simulate", {
+    method: "POST",
+    body: JSON.stringify({ mode, genres }),
+  });
+}
+
+export function getDeveloperOpportunities(): Promise<DeveloperOpportunitiesResponse> {
+  return apiFetch<DeveloperOpportunitiesResponse>("/api/developer/opportunities");
+}
+
+export function generateDeveloperConcept(direction: string, opportunityAppId?: number): Promise<DeveloperConceptResponse> {
+  return apiFetch<DeveloperConceptResponse>("/api/developer/concept", {
+    method: "POST",
+    body: JSON.stringify({ direction, opportunity_app_id: opportunityAppId }),
+  });
 }
