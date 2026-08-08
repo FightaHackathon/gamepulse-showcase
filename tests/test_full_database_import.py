@@ -1,7 +1,7 @@
 import sqlite3
 from pathlib import Path
 
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, delete, func, select
 from sqlalchemy.orm import Session
 
 from gamepulse.db.models import (
@@ -18,6 +18,7 @@ from gamepulse.db.models import (
     TrendScoreModel,
 )
 from gamepulse.jobs.import_full_database import run_full_import
+from gamepulse.jobs.refresh_trends import run_trend_refresh
 
 
 def build_full_source(path: Path) -> None:
@@ -193,4 +194,31 @@ def test_full_import_can_skip_raw_reviews_while_preserving_summaries(tmp_path):
     assert report.raw_reviews_skipped is True
     assert second.row_counts == report.row_counts
     assert second.raw_reviews_skipped is True
+    engine.dispose()
+
+
+def test_trend_refresh_rebuilds_scores_without_rewriting_catalog(tmp_path):
+    source = tmp_path / "source.sqlite3"
+    target = tmp_path / "target.sqlite3"
+    build_full_source(source)
+    target_url = f"sqlite+pysqlite:///{target}"
+    run_full_import(source, target_url, observed_at="2026-08-01T18:32:17Z", batch_size=2, skip_raw_reviews=True)
+
+    engine = create_engine(target_url)
+    with Session(engine) as session:
+        session.execute(delete(TrendScoreModel))
+        session.commit()
+    report = run_trend_refresh(target_url, observed_at="2026-08-01T18:32:17Z", batch_size=2)
+
+    with Session(engine) as session:
+        assert session.scalar(select(func.count()).select_from(GameModel)) == 2
+        assert session.scalar(select(func.count()).select_from(TrendScoreModel)) == 5
+        player = session.scalars(select(TrendScoreModel).where(TrendScoreModel.audience == "player")).first()
+        assert player is not None
+        assert set(player.components) <= {
+            "current_players", "player_growth_pct", "peak_ccu", "review_score", "review_velocity",
+            "playtime_minutes", "activity_available", "growth_available", "review_velocity_available",
+            "playtime_available", "signals_available",
+        }
+    assert report["compact_components"] is True
     engine.dispose()

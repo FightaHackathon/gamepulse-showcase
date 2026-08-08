@@ -84,6 +84,13 @@ while retaining review summaries and derived trends:
 python -m gamepulse.jobs.import_full_database --skip-raw-reviews
 ```
 
+If the catalog is already loaded and only derived trends need rebuilding, use
+the compact trend refresh so the catalog tables are not rewritten:
+
+```powershell
+python -m gamepulse.jobs.refresh_trends --observed-at 2026-08-01T18:32:17Z
+```
+
 The import commits in batches, preserves source timestamps/provenance, and is
 safe to rerun after an interrupted run. Missing provider signals remain
 unavailable; they are not written as zero-valued observations.

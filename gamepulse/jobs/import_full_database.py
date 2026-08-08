@@ -353,7 +353,51 @@ def _review_percent(value: object) -> float | None:
     return max(0.0, min(100.0, score * 100.0 if score <= 1.0 else score))
 
 
-def _import_trends(session: Session, observed_at: datetime, batch_size: int) -> int:
+_COMPACT_TREND_KEYS = {
+    "player": (
+        "current_players",
+        "player_growth_pct",
+        "peak_ccu",
+        "review_score",
+        "review_velocity",
+        "playtime_minutes",
+        "activity_available",
+        "growth_available",
+        "review_velocity_available",
+        "playtime_available",
+        "signals_available",
+    ),
+    "developer": (
+        "market_demand",
+        "genre_demand",
+        "genre_competition",
+        "review_sentiment",
+        "opportunity_gap",
+        "review_velocity",
+        "genre_demand_available",
+        "opportunity_gap_available",
+        "signals_available",
+    ),
+    "streamer": (
+        "demand",
+        "competition",
+        "category_saturation",
+        "opportunity_gap",
+        "hours_watched_30d",
+        "average_viewers_30d",
+        "average_channels_30d",
+        "streaming_available",
+        "signals_available",
+    ),
+}
+
+
+def _compact_trend_components(audience: str, components: Mapping[str, object]) -> dict[str, object]:
+    keys = _COMPACT_TREND_KEYS.get(audience, ())
+    return {key: components[key] for key in keys if key in components}
+
+
+def _import_trends(session: Session, observed_at: datetime, batch_size: int, *, compact_components: bool = False) -> int:
     steam_history: dict[int, dict[str, list[tuple[datetime, float]]]] = {}
     for app_id, metric, observed, value in session.execute(
         select(
@@ -550,6 +594,9 @@ def _import_trends(session: Session, observed_at: datetime, batch_size: int) -> 
             )
 
         if len(trend_rows) >= batch_size:
+            if compact_components:
+                for row in trend_rows:
+                    row["components"] = _compact_trend_components(str(row["audience"]), row["components"])
             _upsert_batch(
                 session,
                 TrendScoreModel,
@@ -559,6 +606,9 @@ def _import_trends(session: Session, observed_at: datetime, batch_size: int) -> 
             )
             trend_rows = []
     if trend_rows:
+        if compact_components:
+            for row in trend_rows:
+                row["components"] = _compact_trend_components(str(row["audience"]), row["components"])
         _upsert_batch(
             session,
             TrendScoreModel,
