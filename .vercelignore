@@ -6,6 +6,8 @@ tests/
 scripts/
 app.py
 DATASET_SOURCES.md
+requirements-prototype.txt
+requirements-dev.txt
 *.sqlite3
 *.sqlite3-shm
 *.sqlite3-wal
