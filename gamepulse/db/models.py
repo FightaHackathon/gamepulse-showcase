@@ -67,6 +67,28 @@ class ReviewSummaryModel(Base):
     latest_review_created_at_unix: Mapped[int | None] = mapped_column(BigInteger)
 
 
+class ReviewModel(Base):
+    """Raw review records retained by the historical catalog import."""
+
+    __tablename__ = "reviews"
+
+    review_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    steam_app_id: Mapped[int] = mapped_column(ForeignKey("games.steam_app_id", ondelete="CASCADE"), index=True)
+    review_text: Mapped[str] = mapped_column(Text, nullable=False)
+    word_count: Mapped[int | None] = mapped_column(Integer)
+    recommended: Mapped[bool | None] = mapped_column(Boolean)
+    helpful_votes: Mapped[int | None] = mapped_column(BigInteger)
+    funny_votes: Mapped[int | None] = mapped_column(BigInteger)
+    created_at_unix: Mapped[int | None] = mapped_column(BigInteger, index=True)
+    author_playtime_minutes: Mapped[int | None] = mapped_column(BigInteger)
+    source_game_name: Mapped[str | None] = mapped_column(String(512))
+    source_price: Mapped[float | None] = mapped_column(Float)
+    source_release_date: Mapped[str | None] = mapped_column(String(128))
+    source_name: Mapped[str] = mapped_column(String(128), nullable=False, default="GamePulse prototype SQLite")
+    source_mode: Mapped[str] = mapped_column(String(64), nullable=False, default="historical_import")
+    source_url: Mapped[str | None] = mapped_column(Text)
+
+
 class SteamSnapshotModel(Base):
     __tablename__ = "steam_snapshots"
     __table_args__ = (

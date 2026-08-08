@@ -18,7 +18,7 @@ from gamepulse.db.models import (
     StreamingSnapshotModel,
     TrendScoreModel,
 )
-from gamepulse.jobs.bootstrap_catalog import run_bootstrap
+from gamepulse.jobs.bootstrap_catalog import build_parser, run_bootstrap
 
 
 OBSERVED_AT = datetime(2026, 8, 8, 6, 30, tzinfo=timezone.utc)
@@ -155,3 +155,9 @@ def test_bootstrap_report_is_json_serializable(tmp_path):
         fetch_json=_payloads(),
     )
     json.dumps(report.to_dict())
+
+
+def test_bootstrap_catalog_exposes_explicit_smoke_test_mode():
+    args = build_parser().parse_args(["--smoke-test"])
+
+    assert args.smoke_test is True

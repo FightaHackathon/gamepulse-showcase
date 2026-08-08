@@ -26,6 +26,18 @@ def _first(data: dict, *keys: str):
     return None
 
 
+def _numeric(value: object) -> float | int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return value
+    try:
+        parsed = float(str(value).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
+    return int(parsed) if parsed.is_integer() else parsed
+
+
 class TwitchTrackerProvider:
     provider_name = "TwitchTracker"
     signal_type = "streaming"
@@ -51,13 +63,21 @@ class TwitchTrackerProvider:
             data = payload.get("data", payload)
             if not isinstance(data, dict):
                 raise ValueError("response did not contain summary data")
+            nested = data.get("summary") or data.get("stats")
+            if isinstance(nested, dict):
+                data = nested
             rank = _first(data, "rank", "game_rank")
             hours = _first(data, "hours_watched", "watched_hours")
             if hours is None:
                 minutes = _first(data, "minutes_watched", "watched_minutes")
+                minutes = _numeric(minutes)
                 hours = float(minutes) / 60.0 if minutes is not None else None
             viewers = _first(data, "avg_viewers", "average_viewers")
             channels = _first(data, "avg_channels", "average_channels")
+            rank = _numeric(rank)
+            hours = _numeric(hours)
+            viewers = _numeric(viewers)
+            channels = _numeric(channels)
         except Exception as exc:
             raise ProviderError(f"TwitchTracker summary request failed: {exc}") from exc
 

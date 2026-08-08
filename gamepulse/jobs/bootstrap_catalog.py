@@ -573,6 +573,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--database-url", default=os.getenv("DATABASE_URL"), help="SQLAlchemy DATABASE_URL (or DATABASE_URL environment variable).")
     parser.add_argument("--app-id", action="append", type=int, dest="app_ids", help="Steam app ID; may be repeated. Defaults to a deterministic curated list.")
     parser.add_argument("--limit", type=int, help="Maximum number of app IDs to seed.")
+    parser.add_argument("--smoke-test", action="store_true", help="Explicitly run the bounded five-game smoke seed.")
     parser.add_argument("--observed-at", help="Fixed ISO-8601 observation timestamp; naive values are treated as UTC.")
     parser.add_argument("--timeout", "--timeout-seconds", type=float, default=15.0, dest="timeout_seconds", help="Provider request timeout in seconds.")
     return parser
@@ -584,10 +585,13 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if not args.database_url:
             raise ValueError("DATABASE_URL is required")
+        limit = args.limit
+        if args.smoke_test:
+            limit = len(DEFAULT_APP_IDS) if limit is None else min(limit, len(DEFAULT_APP_IDS))
         report = run_bootstrap(
             args.database_url,
             app_ids=args.app_ids,
-            limit=args.limit,
+            limit=limit,
             observed_at=args.observed_at,
             timeout_seconds=args.timeout_seconds,
         )
