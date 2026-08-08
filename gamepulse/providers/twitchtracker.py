@@ -28,6 +28,7 @@ def _first(data: dict, *keys: str):
 
 class TwitchTrackerProvider:
     provider_name = "TwitchTracker"
+    signal_type = "streaming"
 
     def __init__(
         self,
