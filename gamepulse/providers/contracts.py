@@ -41,5 +41,6 @@ class ProviderError(RuntimeError):
 
 class GameSignalProvider(Protocol):
     provider_name: str
+    signal_type: str
 
     def fetch(self, game: GameIdentity) -> list[ProviderMetric]: ...
