@@ -15,8 +15,25 @@ jobs:
           python-version: '3.12'
           cache: pip
       - name: Install Python dependencies
-        run: python -m pip install --upgrade pip && python -m pip install pytest -r requirements.txt
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements-dev.txt
       - name: Run Python tests
         run: python -m pytest tests -q
       - name: Compile Python
         run: python -m compileall -q app.py api gamepulse scripts tests
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install web dependencies
+        run: npm install
+      - name: Run web tests
+        run: npm test
+      - name: Build web app
+        run: npm run build
