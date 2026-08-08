@@ -1,0 +1,7 @@
+-r requirements.txt
+streamlit>=1.40
+pandas>=2.2
+scikit-learn>=1.5
+statsmodels>=0.14
+requests>=2.32
+plotly>=5.24
