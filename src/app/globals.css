@@ -1,0 +1,28 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  background: #0b0b10;
+  color: #f5f5f7;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.foundation-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+}
+
+.foundation-shell h1 {
+  margin: 0;
+  font-size: clamp(2.5rem, 8vw, 5rem);
+  letter-spacing: -0.04em;
+}
