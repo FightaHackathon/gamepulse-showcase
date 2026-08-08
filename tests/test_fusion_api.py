@@ -189,3 +189,29 @@ def test_developer_response_separates_evidence_from_generated_idea(client, monke
     assert body["data_evidence"]
     assert body["ai_generated_idea"]["title"]
     assert body["ai_generated_idea"]["risks"]
+
+
+def test_fusion_vertical_slice_reaches_health_player_streamer_developer_and_game_detail(client, monkeypatch):
+    monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
+
+    assert client.get("/api/health").json() == {"status": "ok"}
+
+    player_response = client.post(
+        "/api/player/analyze",
+        json={"steam_profile_url": "https://steamcommunity.com/id/example/"},
+    )
+    assert player_response.status_code == 200
+    recommendation = player_response.json()["recommendations"][0]
+
+    game_response = client.get(f"/api/games/{recommendation['steam_app_id']}")
+    assert game_response.status_code == 200
+    assert game_response.json()["steam_store_url"].endswith(f"/app/{recommendation['steam_app_id']}")
+
+    for mode in ("balanced", "discoverability", "audience_potential"):
+        assert client.post("/api/streamer/simulate", json={"mode": mode}).status_code == 200
+
+    opportunities = client.get("/api/developer/opportunities")
+    assert opportunities.status_code == 200
+    concept = client.post("/api/developer/concept", json={"direction": "co-op action"})
+    assert concept.status_code == 200
+    assert concept.json()["data_evidence"]

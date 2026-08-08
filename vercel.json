@@ -1,5 +1,22 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "experimentalServices": {
+    "web": {
+      "entrypoint": ".",
+      "routePrefix": "/",
+      "framework": "nextjs"
+    },
+    "api": {
+      "entrypoint": "api/service.py",
+      "routePrefix": "/api",
+      "framework": "fastapi",
+      "includeFiles": [
+        "api/**",
+        "gamepulse/**",
+        "requirements.txt"
+      ]
+    }
+  },
   "crons": [
     {
       "path": "/api/jobs/refresh",
