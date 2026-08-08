@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
 
 from gamepulse.db.models import (
     Base,
@@ -21,7 +22,11 @@ NOW = datetime(2026, 8, 8, 6, 30, tzinfo=timezone.utc)
 
 
 def test_game_detail_and_history_are_served_from_cached_database():
-    engine = create_engine("sqlite+pysqlite:///:memory:")
+    engine = create_engine(
+        "sqlite+pysqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     Base.metadata.create_all(engine)
     session = Session(engine)
     session.add(
