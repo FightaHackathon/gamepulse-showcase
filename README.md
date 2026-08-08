@@ -77,6 +77,13 @@ scores into the database configured by `DATABASE_URL`:
 python -m gamepulse.jobs.import_full_database
 ```
 
+When the target database has a constrained storage quota, omit raw review text
+while retaining review summaries and derived trends:
+
+```powershell
+python -m gamepulse.jobs.import_full_database --skip-raw-reviews
+```
+
 The import commits in batches, preserves source timestamps/provenance, and is
 safe to rerun after an interrupted run. Missing provider signals remain
 unavailable; they are not written as zero-valued observations.
