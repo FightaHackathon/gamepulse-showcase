@@ -158,3 +158,39 @@ def test_full_import_preserves_all_available_tables_and_is_idempotent(tmp_path):
     assert first.validation_failures == ()
     assert second.validation_failures == ()
     engine.dispose()
+
+
+def test_full_import_can_skip_raw_reviews_while_preserving_summaries(tmp_path):
+    source = tmp_path / "source.sqlite3"
+    target = tmp_path / "target.sqlite3"
+    build_full_source(source)
+    target_url = f"sqlite+pysqlite:///{target}"
+
+    report = run_full_import(
+        source,
+        target_url,
+        observed_at="2026-08-01T18:32:17Z",
+        batch_size=2,
+        skip_raw_reviews=True,
+    )
+    second = run_full_import(
+        source,
+        target_url,
+        observed_at="2026-08-01T18:32:17Z",
+        batch_size=2,
+        skip_raw_reviews=True,
+    )
+
+    engine = create_engine(target_url)
+    with Session(engine) as session:
+        actual = counts(session)
+        assert actual["games"] == 2
+        assert actual["review_summaries"] == 1
+        assert actual["reviews"] == 0
+        assert actual["trend_scores"] == 5
+
+    assert report.row_counts["reviews"] == 0
+    assert report.raw_reviews_skipped is True
+    assert second.row_counts == report.row_counts
+    assert second.raw_reviews_skipped is True
+    engine.dispose()

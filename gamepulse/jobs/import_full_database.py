@@ -52,6 +52,7 @@ class FullImportReport:
     row_counts: dict[str, int]
     skipped_rows: int
     validation_failures: tuple[str, ...]
+    raw_reviews_skipped: bool
     import_seconds: float
     trend_observed_at: str
 
@@ -603,6 +604,7 @@ def run_full_import(
     *,
     batch_size: int = 2000,
     observed_at: datetime | str | None = None,
+    skip_raw_reviews: bool = False,
 ) -> FullImportReport:
     source_path = Path(sqlite_path)
     if not source_path.is_file():
@@ -700,7 +702,7 @@ def run_full_import(
                     )
                     counts["review_summaries"] += len(valid)
 
-            if _table_exists(connection, "reviews"):
+            if _table_exists(connection, "reviews") and not skip_raw_reviews:
                 for batch in _chunks(
                     (_review_row(_row_dict(row), game_ids) for row in connection.execute("SELECT * FROM reviews ORDER BY steam_app_id, review_id")),
                     batch_size,
@@ -835,6 +837,7 @@ def run_full_import(
         row_counts=counts,
         skipped_rows=skipped,
         validation_failures=tuple(failures[:20]),
+        raw_reviews_skipped=skip_raw_reviews,
         import_seconds=round(time.monotonic() - started_clock, 3),
         trend_observed_at=(trend_time or started_at).isoformat(),
     )
@@ -846,6 +849,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--database-url", default=os.getenv("DATABASE_URL"), help="Target SQLAlchemy DATABASE_URL (or DATABASE_URL environment variable).")
     parser.add_argument("--batch-size", type=int, default=2000, help="Rows per database upsert batch.")
     parser.add_argument("--observed-at", help="Stable ISO-8601 timestamp for derived trend scores.")
+    parser.add_argument(
+        "--skip-raw-reviews",
+        action="store_true",
+        help="Do not copy review text rows; retain review summaries and derived trends to reduce database storage.",
+    )
     return parser
 
 
@@ -859,6 +867,7 @@ def main(argv: list[str] | None = None) -> int:
             args.database_url,
             batch_size=args.batch_size,
             observed_at=args.observed_at,
+            skip_raw_reviews=args.skip_raw_reviews,
         )
         print(json.dumps(report.to_dict(), sort_keys=True))
         return 0 if report.status in {"success", "partial_success"} else 1
