@@ -1,13 +1,7 @@
-streamlit>=1.40
-pandas>=2.2
-scikit-learn>=1.5
-statsmodels>=0.14
-requests>=2.32
-python-dotenv>=1.0
-plotly>=5.24
 fastapi>=0.115
 pydantic>=2.9
 pydantic-settings>=2.5
+python-dotenv>=1.0
 sqlalchemy>=2.0
 alembic>=1.13
 psycopg[binary]>=3.2
