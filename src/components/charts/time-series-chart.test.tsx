@@ -2,7 +2,7 @@
 
 import "@testing-library/jest-dom/vitest";
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import { sortMetricPoints, TimeSeriesChart } from "./time-series-chart";
 
@@ -30,6 +30,20 @@ const points = [
     signal_type: "steam",
   },
 ];
+
+beforeAll(() => {
+  class ResizeObserverStub {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+
+  Object.defineProperty(globalThis, "ResizeObserver", {
+    configurable: true,
+    writable: true,
+    value: ResizeObserverStub,
+  });
+});
 
 describe("TimeSeriesChart", () => {
   it("orders points chronologically without interpolating them", () => {
