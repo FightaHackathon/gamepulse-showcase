@@ -17,6 +17,12 @@ __pycache__/
 .tmp/
 *.log
 
+# Node/Next.js dependencies, build output and coverage
+node_modules/
+.next/
+coverage/
+.vitest/
+
 # Dataset payloads are intentionally included through Git LFS for the
 # dataset-inclusive share build. See .gitattributes and DATASET_SOURCES.md.
 *.sqlite3
