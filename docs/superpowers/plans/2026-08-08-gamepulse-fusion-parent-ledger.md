@@ -4,12 +4,12 @@ Plan: `docs/superpowers/plans/2026-08-08-gamepulse-fusion-orchestration.md`
 
 | task_id | state | worker | dependencies | result_ref | verification | retries | blocker |
 |---|---|---|---|---|---|---:|---|
-| O1 | IMPLEMENTED / BUILD-VERIFY-DEFERRED | IN-CHAT-O1 | — | `b4250b84d6bc3bd6a34f4cb0c13d96c2770fd524` + subsequent O1 commits | FastAPI/data/provider contracts implemented; focused Python behavior rehearsed locally; automatic Actions disabled; final `next build` still requires an external build runner | 0 | Sandbox cannot resolve npm/GitHub network and no Vercel project exists yet |
-| O2 | RUNNING | IN-CHAT-O2 | O1 interfaces stable; O1 external build gate deferred | — | — | 0 | — |
-| O3 | QUEUED | UNASSIGNED | O1,O2 | — | — | 0 | — |
+| O1 | IMPLEMENTED / BUILD-VERIFY-DEFERRED | IN-CHAT-O1 | — | foundation commits through cached read API and runtime split | FastAPI/data/provider contracts implemented; focused Python behavior rehearsed locally; automatic Actions disabled; final external build still pending | 0 | Sandbox cannot resolve npm/GitHub network and no Vercel project exists yet |
+| O2 | IMPLEMENTED / BUILD-VISUAL-VERIFY-DEFERRED | IN-CHAT-O2 | O1 interfaces stable | web shell/game-detail commits through `8463bf6ad67d49946b080db61049c31fefe6bf44` plus test-safety fixes | Three-path landing, shared shell, API client, internal game cards, summary-first detail, deep sections, Settings/About implemented; npm/browser fidelity verification deferred | 0 | External npm/Vercel/browser runner not available yet |
+| O3 | RUNNING | IN-CHAT-O3 | O1,O2 implemented interfaces | — | — | 0 | — |
 | O4 | QUEUED | UNASSIGNED | O1,O2 | — | — | 0 | — |
 | O5 | QUEUED | UNASSIGNED | O1,O2 | — | — | 0 | — |
-| O6 | QUEUED | UNASSIGNED | O3,O4,O5 | — | Must also close O1 external build verification before promotion | 0 | — |
+| O6 | QUEUED | UNASSIGNED | O3,O4,O5 | — | Must close O1/O2 external build + visual verification before promotion | 0 | — |
 
 ## Capability status
 
@@ -21,7 +21,7 @@ Plan: `docs/superpowers/plans/2026-08-08-gamepulse-fusion-orchestration.md`
 
 ## Deferred verification rule
 
-O2 may proceed because the O1 API/data interfaces are implemented and stable, but this does **not** waive the missing external build evidence. O6 is forbidden from production promotion until the Next.js/Vercel build gate is proven and recorded here.
+Implementation may advance while interfaces are source-reviewed and test contracts are present, but this does **not** waive external evidence. O6 is forbidden from production promotion until the Next.js build, frontend tests, and browser fidelity checks are proven and recorded here.
 
 ## Ledger rules
 
