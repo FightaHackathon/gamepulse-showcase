@@ -21,6 +21,7 @@ def _default_fetch_json(url: str, timeout: float) -> object:
 
 class SteamCurrentPlayersProvider:
     provider_name = "Steam Web API"
+    signal_type = "steam"
 
     def __init__(
         self,
