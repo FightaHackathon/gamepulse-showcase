@@ -40,6 +40,7 @@ def parse_owners_range(value: object) -> tuple[int | None, int | None]:
 
 class SteamSpyProvider:
     provider_name = "SteamSpy"
+    signal_type = "steamspy"
 
     def __init__(
         self,
