@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
 
 from gamepulse.db.models import Base, ProviderRunModel
 from gamepulse.web_api.app import app
@@ -13,7 +14,11 @@ NOW = datetime.now(timezone.utc)
 
 
 def test_source_status_reports_latest_health_and_freshness():
-    engine = create_engine("sqlite+pysqlite:///:memory:")
+    engine = create_engine(
+        "sqlite+pysqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     Base.metadata.create_all(engine)
     session = Session(engine)
     session.add_all(
