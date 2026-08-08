@@ -19,8 +19,9 @@ describe("SourceMeta", () => {
     );
 
     expect(screen.getByText("Steam Web API")).toBeInTheDocument();
-    expect(screen.getByText("2h ago")).toBeInTheDocument();
+    const relative = screen.getByText("2h ago");
+    expect(relative).toBeInTheDocument();
+    expect(relative.closest("time")).toHaveAttribute("datetime", "2026-08-08T04:30:00Z");
     expect(screen.getByText("high")).toBeInTheDocument();
-    expect(screen.getByRole("time")).toHaveAttribute("datetime", "2026-08-08T04:30:00Z");
   });
 });
