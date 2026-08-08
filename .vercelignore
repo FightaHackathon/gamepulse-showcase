@@ -1,14 +1,22 @@
-# Vercel hosts the static landing page only. Streamlit and dataset payloads run elsewhere.
+# Large local datasets and prototype-only artifacts are excluded from Vercel.
 data/
-gamepulse/
 gamepulse_data/
-scripts/
-tests/
 docs/
+tests/
+scripts/
 app.py
-requirements.txt
 DATASET_SOURCES.md
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
 .env*
 .git/
 .gitignore
 .gitattributes
+
+# Keep the production web/API runtime in the deployment:
+# - src/
+# - api/
+# - gamepulse/
+# - package.json and Next.js config
+# - requirements.txt
