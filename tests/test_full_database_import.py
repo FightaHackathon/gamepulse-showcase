@@ -135,6 +135,23 @@ def test_full_import_preserves_all_available_tables_and_is_idempotent(tmp_path):
         assert review is not None
         assert review.source_name == "GamePulse prototype SQLite"
         assert review.source_mode == "historical_import"
+        player = session.scalars(
+            select(TrendScoreModel).where(
+                TrendScoreModel.steam_app_id == 10,
+                TrendScoreModel.audience == "player",
+            )
+        ).one()
+        assert player.components["review_velocity_available"] is True
+        assert player.components["playtime_available"] is True
+        assert player.components["growth_available"] is False
+        developer = session.scalars(
+            select(TrendScoreModel).where(
+                TrendScoreModel.steam_app_id == 10,
+                TrendScoreModel.audience == "developer",
+            )
+        ).one()
+        assert developer.components["genre_demand_available"] is True
+        assert developer.components["opportunity_gap_available"] is True
         assert session.scalar(select(func.count()).select_from(TrendScoreModel).where(TrendScoreModel.audience == "streamer")) == 1
 
     assert first.row_counts == second.row_counts

@@ -114,6 +114,20 @@ def client(monkeypatch):
                     observed_at=observed_at,
                     confidence="medium",
                 ),
+                TrendScoreModel(
+                    steam_app_id=10,
+                    audience="developer",
+                    score=72.0,
+                    components={
+                        "market_demand": 64.0,
+                        "genre_demand": 58.0,
+                        "genre_competition": 22.0,
+                        "review_sentiment": 92.0,
+                        "opportunity_gap": 45.0,
+                    },
+                    observed_at=observed_at,
+                    confidence="medium",
+                ),
             ]
         )
         session.commit()
@@ -182,6 +196,11 @@ def test_developer_response_separates_evidence_from_generated_idea(client, monke
     opportunities = client.get("/api/developer/opportunities")
     assert opportunities.status_code == 200
     assert opportunities.json()["opportunities"][0]["evidence"]
+    assert set(opportunities.json()["opportunities"][0]["signals"]) >= {
+        "genre_demand",
+        "opportunity_gap",
+        "review_sentiment",
+    }
 
     concept = client.post("/api/developer/concept", json={"direction": "co-op action"})
     assert concept.status_code == 200

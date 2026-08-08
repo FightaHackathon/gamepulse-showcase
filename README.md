@@ -61,6 +61,26 @@ npm test
 npm run build
 ```
 
+## Catalog restore and intelligence refresh
+
+The bounded provider seed is an explicit smoke-test path:
+
+```powershell
+python -m gamepulse.jobs.bootstrap_catalog --smoke-test
+```
+
+The production path reads the recovered Git-LFS SQLite catalog and batch-upserts
+the full catalog, raw reviews, historical snapshots and multi-signal trend
+scores into the database configured by `DATABASE_URL`:
+
+```powershell
+python -m gamepulse.jobs.import_full_database
+```
+
+The import commits in batches, preserves source timestamps/provenance, and is
+safe to rerun after an interrupted run. Missing provider signals remain
+unavailable; they are not written as zero-valued observations.
+
 ## Data and privacy
 
 Large raw archives, processed CSVs and the local SQLite database are tracked with

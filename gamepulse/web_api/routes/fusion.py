@@ -57,6 +57,26 @@ def _normalized(values: list[float]) -> list[float]:
     return [max(0.0, min(1.0, value / maximum)) for value in values]
 
 
+def _latest_trend(session: Session, app_id: int, audience: str) -> TrendScoreModel | None:
+    return session.scalars(
+        select(TrendScoreModel)
+        .where(TrendScoreModel.steam_app_id == app_id, TrendScoreModel.audience == audience)
+        .order_by(TrendScoreModel.observed_at.desc(), TrendScoreModel.id.desc())
+    ).first()
+
+
+def _normalized_component(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number > 1.0:
+        number /= 100.0
+    return max(0.0, min(1.0, number))
+
+
 def _streamer_rows(session: Session, request: StreamerSimulationRequest) -> list[dict]:
     games = GameRepository(session).list_games(limit=200)
     requested_genres = {value.casefold().strip() for value in request.genres if value.strip()}
@@ -65,11 +85,7 @@ def _streamer_rows(session: Session, request: StreamerSimulationRequest) -> list
     for game in candidates:
         stream = _latest_values(session, game.steam_app_id, StreamingSnapshotModel, {"average_viewers_30d", "viewer_count", "channel_count", "category_growth", "growth_pct"})
         steam = _latest_values(session, game.steam_app_id, SteamSnapshotModel, {"current_players", "peak_ccu"})
-        trend = session.scalars(
-            select(TrendScoreModel)
-            .where(TrendScoreModel.steam_app_id == game.steam_app_id)
-            .order_by(TrendScoreModel.observed_at.desc(), TrendScoreModel.id.desc())
-        ).first()
+        trend = _latest_trend(session, game.steam_app_id, "streamer") or _latest_trend(session, game.steam_app_id, "player")
         components = trend.components if trend is not None else {}
         viewers = stream.get("average_viewers_30d", stream.get("viewer_count", float(game.peak_ccu or 0)))
         channels = stream.get("channel_count", max(1.0, viewers / 50.0 if viewers else 1.0))
@@ -77,7 +93,7 @@ def _streamer_rows(session: Session, request: StreamerSimulationRequest) -> list
         growth = stream.get("category_growth", stream.get("growth_pct", float(components.get("growth", 0.0))))
         if growth > 1:
             growth /= 100.0
-        momentum = float(components.get("momentum", trend.score if trend is not None else 0.0))
+        momentum = _normalized_component(components.get("momentum", trend.score if trend is not None else None)) or 0.0
         rows.append({"game": game, "viewers": viewers, "channels": channels, "ratio": ratio, "growth": max(0.0, min(1.0, growth)), "momentum": max(0.0, min(1.0, momentum))})
 
     demand = _normalized([row["viewers"] for row in rows])
@@ -123,29 +139,47 @@ def streamer_simulate(request: StreamerSimulationRequest, session: Session = Dep
 def _developer_evidence(session: Session, game) -> tuple[list[str], dict[str, float]]:
     steam = _latest_values(session, game.steam_app_id, SteamSnapshotModel, {"current_players", "peak_ccu"})
     stream = _latest_values(session, game.steam_app_id, StreamingSnapshotModel, {"average_viewers_30d", "viewer_count", "channel_count", "category_growth", "growth_pct"})
-    trend = session.scalars(
-        select(TrendScoreModel)
-        .where(TrendScoreModel.steam_app_id == game.steam_app_id)
-        .order_by(TrendScoreModel.observed_at.desc(), TrendScoreModel.id.desc())
-    ).first()
+    trend = _latest_trend(session, game.steam_app_id, "developer") or _latest_trend(session, game.steam_app_id, "player")
     components = trend.components if trend is not None else {}
     players = steam.get("current_players", float(game.peak_ccu or 0))
     viewers = stream.get("average_viewers_30d", stream.get("viewer_count", 0.0))
     channels = stream.get("channel_count", 0.0)
-    growth = float(components.get("growth", stream.get("category_growth", stream.get("growth_pct", 0.0))))
+    growth_value = components.get("growth", components.get("player_growth_pct"))
+    growth_value = growth_value if growth_value is not None else stream.get("category_growth", stream.get("growth_pct"))
+    growth = float(growth_value or 0.0)
     if growth > 1:
         growth /= 100.0
     sentiment = float(game.review_score or 0.0)
     saturation = max(0.0, min(1.0, channels / 1000.0))
-    score = max(0.0, min(100.0, players / max(players, 1000.0) * 25 + viewers / max(viewers, 5000.0) * 25 + max(0.0, min(1.0, growth)) * 20 + sentiment * 20 + (1 - saturation) * 10))
+    genre_demand = _normalized_component(components.get("genre_demand"))
+    opportunity_gap = _normalized_component(components.get("opportunity_gap"))
+    review_sentiment = _normalized_component(components.get("review_sentiment")) or sentiment
+    legacy_score = players / max(players, 1000.0) * 25 + viewers / max(viewers, 5000.0) * 25 + max(0.0, min(1.0, growth)) * 20 + sentiment * 20 + (1 - saturation) * 10
+    intelligence_parts = [(genre_demand, 0.30), (opportunity_gap, 0.35), (review_sentiment, 0.35)]
+    available_intelligence = [(value, weight) for value, weight in intelligence_parts if value is not None]
+    intelligence_score = None
+    if available_intelligence:
+        total_weight = sum(weight for _, weight in available_intelligence)
+        intelligence_score = sum(value * weight for value, weight in available_intelligence) / total_weight * 100
+    score = legacy_score if intelligence_score is None else max(0.0, min(100.0, 0.55 * legacy_score + 0.45 * intelligence_score))
     evidence = [
         f"Rising genres: {', '.join(game.genres) or 'unclassified'}",
         f"Player activity signal: {int(players):,} current or peak players",
         f"Streaming demand signal: {int(viewers):,} cached viewers",
         f"Creator saturation: {int(channels):,} observed channels",
         f"Review sentiment: {sentiment:.0%} positive-share estimate",
+        f"Genre demand signal: {genre_demand:.0%}" if genre_demand is not None else "Genre demand signal: unavailable",
+        f"Opportunity gap: {opportunity_gap:.0%}" if opportunity_gap is not None else "Opportunity gap: unavailable",
     ]
-    return evidence, {"player_growth": round(max(0.0, min(1.0, growth)) * 100, 1), "streaming_demand": round(min(1.0, viewers / max(viewers, 5000.0)) * 100, 1), "saturation": round(saturation * 100, 1), "review_sentiment": round(sentiment * 100, 1), "opportunity_score": round(score, 1)}
+    return evidence, {
+        "player_growth": round(max(0.0, min(1.0, growth)) * 100, 1),
+        "streaming_demand": round(min(1.0, viewers / max(viewers, 5000.0)) * 100, 1),
+        "saturation": round(saturation * 100, 1),
+        "review_sentiment": round(review_sentiment * 100, 1),
+        "genre_demand": None if genre_demand is None else round(genre_demand * 100, 1),
+        "opportunity_gap": None if opportunity_gap is None else round(opportunity_gap * 100, 1),
+        "opportunity_score": round(score, 1),
+    }
 
 
 @router.get("/developer/opportunities")

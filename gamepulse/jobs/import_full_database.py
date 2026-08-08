@@ -18,7 +18,7 @@ import sqlite3
 import time
 from typing import Any, Iterable, Mapping
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
@@ -337,89 +337,213 @@ def _bounded_score(value: float, denominator: float) -> float:
     return round(max(0.0, min(100.0, 100.0 * math.log1p(value) / math.log1p(denominator))), 4)
 
 
+def _weighted_score(parts: dict[str, tuple[float | None, float]]) -> tuple[float, bool]:
+    available = [(value, weight) for value, weight in parts.values() if value is not None]
+    if not available:
+        return 0.0, False
+    total_weight = sum(weight for _, weight in available)
+    return round(sum(float(value) * weight for value, weight in available) / total_weight, 4), True
+
+
+def _review_percent(value: object) -> float | None:
+    score = _as_float(value)
+    if score is None:
+        return None
+    return max(0.0, min(100.0, score * 100.0 if score <= 1.0 else score))
+
+
 def _import_trends(session: Session, observed_at: datetime, batch_size: int) -> int:
-    steam_values: dict[int, dict[str, float]] = {}
-    for app_id, metric, value in session.execute(
-        select(SteamSnapshotModel.steam_app_id, SteamSnapshotModel.metric, SteamSnapshotModel.value_numeric)
+    steam_history: dict[int, dict[str, list[tuple[datetime, float]]]] = {}
+    for app_id, metric, observed, value in session.execute(
+        select(
+            SteamSnapshotModel.steam_app_id,
+            SteamSnapshotModel.metric,
+            SteamSnapshotModel.observed_at,
+            SteamSnapshotModel.value_numeric,
+        ).where(SteamSnapshotModel.observed_at <= observed_at)
     ).all():
         if value is not None and metric in {"current_players", "peak_ccu"}:
-            steam_values.setdefault(int(app_id), {})[str(metric)] = float(value)
+            steam_history.setdefault(int(app_id), {}).setdefault(str(metric), []).append((observed, float(value)))
 
     streaming_values: dict[int, dict[str, float]] = {}
     for app_id, metric, value in session.execute(
         select(StreamingSnapshotModel.steam_app_id, StreamingSnapshotModel.metric, StreamingSnapshotModel.value_numeric).where(
-            StreamingSnapshotModel.steam_app_id.is_not(None)
+            StreamingSnapshotModel.steam_app_id.is_not(None),
+            StreamingSnapshotModel.observed_at <= observed_at,
         )
     ).all():
         if app_id is not None and value is not None:
             streaming_values.setdefault(int(app_id), {})[str(metric)] = float(value)
 
+    review_summaries = {
+        int(app_id): (review_score, playtime)
+        for app_id, review_score, playtime in session.execute(
+            select(
+                ReviewSummaryModel.steam_app_id,
+                ReviewSummaryModel.review_score,
+                ReviewSummaryModel.average_playtime_minutes,
+            )
+        ).all()
+    }
+    max_review_time = session.scalar(select(func.max(ReviewModel.created_at_unix)))
+    review_cutoff = int(max_review_time) - 90 * 24 * 60 * 60 if max_review_time is not None else None
+    review_velocity: dict[int, int] = {}
+    if review_cutoff is not None:
+        review_velocity = {
+            int(app_id): int(count)
+            for app_id, count in session.execute(
+                select(ReviewModel.steam_app_id, func.count(ReviewModel.review_id))
+                .where(ReviewModel.created_at_unix >= review_cutoff)
+                .group_by(ReviewModel.steam_app_id)
+            ).all()
+        }
+
+    game_rows = session.execute(
+        select(GameModel.steam_app_id, GameModel.name, GameModel.peak_ccu, GameModel.total_reviews, GameModel.review_score, GameModel.average_playtime_minutes)
+    ).all()
+    game_totals = {int(app_id): int(total_reviews or 0) for app_id, _, _, total_reviews, _, _ in game_rows}
+    genres_by_game: dict[int, list[str]] = {}
+    genre_stats: dict[str, list[int]] = {}
+    for app_id, value in session.execute(select(GameGenreModel.steam_app_id, GameGenreModel.value)).all():
+        if int(app_id) not in game_totals:
+            continue
+        genre = str(value)
+        genres_by_game.setdefault(int(app_id), []).append(genre)
+        stat = genre_stats.setdefault(genre, [0, 0])
+        stat[0] += 1
+        stat[1] += game_totals[int(app_id)]
+    genre_signals = {
+        genre: {
+            "demand": _bounded_score(total_reviews / max(game_count, 1), 1_000_000),
+            "competition": _bounded_score(game_count, 1_000),
+        }
+        for genre, (game_count, total_reviews) in genre_stats.items()
+    }
+
     trend_rows: list[dict[str, object]] = []
-    for app_id, name, peak_ccu, total_reviews, review_score in session.execute(
-        select(GameModel.steam_app_id, GameModel.name, GameModel.peak_ccu, GameModel.total_reviews, GameModel.review_score)
-    ).all():
+    for app_id, name, peak_ccu, total_reviews, review_score, game_playtime in game_rows:
         app_id = int(app_id)
-        steam = steam_values.get(app_id, {})
-        current_players = steam.get("current_players")
-        peak = steam.get("peak_ccu", _as_float(peak_ccu))
-        player_signal = current_players if current_players is not None else peak
-        review = float(review_score or 0.0)
-        developer_score = round(
-            max(0.0, min(100.0, 0.55 * _bounded_score(float(total_reviews or 0), 1_000_000) + 0.45 * max(0.0, min(100.0, review * 100.0)))),
-            4,
+        history = steam_history.get(app_id, {})
+        current_history = sorted(history.get("current_players", []))
+        peak_history = sorted(history.get("peak_ccu", []))
+        current_players = current_history[-1][1] if current_history else None
+        peak = peak_history[-1][1] if peak_history else _as_float(peak_ccu)
+        growth_pct = None
+        growth_history = current_history or peak_history
+        if len(growth_history) >= 2 and growth_history[0][1] > 0:
+            growth_pct = (growth_history[-1][1] - growth_history[0][1]) / growth_history[0][1] * 100.0
+        growth_score = max(0.0, min(100.0, 50.0 + float(growth_pct))) if growth_pct is not None else None
+        summary_review, summary_playtime = review_summaries.get(app_id, (None, None))
+        review = _review_percent(summary_review if summary_review is not None else review_score)
+        velocity_count = review_velocity.get(app_id)
+        velocity = _bounded_score(velocity_count, 10_000) if velocity_count is not None else None
+        playtime = _as_float(summary_playtime if summary_playtime is not None else game_playtime)
+        playtime_signal = _bounded_score(playtime, 50_000) if playtime is not None else None
+        activity_signal = _bounded_score(current_players if current_players is not None else peak, 1_000_000) if (current_players is not None or peak is not None) else None
+        player_score, player_available = _weighted_score(
+            {
+                "activity": (activity_signal, 0.30),
+                "growth": (growth_score, 0.20),
+                "review": (review, 0.20),
+                "velocity": (velocity, 0.15),
+                "playtime": (playtime_signal, 0.15),
+            }
+        )
+        game_genres = genres_by_game.get(app_id, [])
+        genre_demand = max((genre_signals[genre]["demand"] for genre in game_genres if genre in genre_signals), default=None)
+        genre_competition = max((genre_signals[genre]["competition"] for genre in game_genres if genre in genre_signals), default=None)
+        market_demand = _bounded_score(float(total_reviews), 1_000_000) if total_reviews is not None else None
+        opportunity_gap = genre_demand * (100.0 - genre_competition) / 100.0 if genre_demand is not None and genre_competition is not None else None
+        developer_score, developer_available = _weighted_score(
+            {
+                "market_demand": (market_demand, 0.25),
+                "genre_demand": (genre_demand, 0.20),
+                "review_sentiment": (review, 0.20),
+                "opportunity_gap": (opportunity_gap, 0.20),
+                "review_velocity": (velocity, 0.15),
+            }
         )
         trend_rows.extend(
             [
                 {
                     "steam_app_id": app_id,
                     "audience": "player",
-                    "score": _bounded_score(float(player_signal or 0), 1_000_000),
+                    "score": player_score,
                     "components": {
                         "current_players": current_players,
+                        "player_growth_pct": growth_pct,
                         "peak_ccu": peak,
-                        "activity_available": player_signal is not None,
+                        "review_score": review,
+                        "review_velocity": velocity_count,
+                        "playtime_minutes": playtime,
+                        "activity_available": activity_signal is not None,
+                        "growth_available": growth_pct is not None,
+                        "review_velocity_available": velocity_count is not None,
+                        "playtime_available": playtime is not None,
+                        "signals_available": player_available,
                     },
                     "observed_at": observed_at,
                     "source_name": "GamePulse Full Catalog Import",
-                    "source_mode": "derived",
-                    "confidence": "medium" if player_signal is not None else "low",
+                    "source_mode": "derived_multi_signal",
+                    "confidence": "medium" if player_available else "low",
                 },
                 {
                     "steam_app_id": app_id,
                     "audience": "developer",
                     "score": developer_score,
                     "components": {
-                        "total_reviews": total_reviews,
-                        "review_score": review_score,
-                        "review_activity_available": total_reviews is not None or review_score is not None,
+                        "market_demand": market_demand,
+                        "genre_demand": genre_demand,
+                        "genre_competition": genre_competition,
+                        "review_sentiment": review,
+                        "opportunity_gap": opportunity_gap,
+                        "review_velocity": velocity,
+                        "genre_demand_available": genre_demand is not None,
+                        "opportunity_gap_available": opportunity_gap is not None,
+                        "signals_available": developer_available,
                     },
                     "observed_at": observed_at,
                     "source_name": "GamePulse Full Catalog Import",
-                    "source_mode": "derived",
-                    "confidence": "medium" if total_reviews or review_score is not None else "low",
+                    "source_mode": "derived_multi_signal",
+                    "confidence": "medium" if developer_available else "low",
                 },
             ]
         )
         stream = streaming_values.get(app_id)
         if stream:
+            demand_signals = [
+                _bounded_score(stream["average_viewers_30d"], 100_000) if stream.get("average_viewers_30d") is not None else None,
+                _bounded_score(stream["hours_watched_30d"], 100_000) if stream.get("hours_watched_30d") is not None else None,
+            ]
+            demand = max((value for value in demand_signals if value is not None), default=None)
+            competition = _bounded_score(stream.get("average_channels_30d"), 10_000) if stream.get("average_channels_30d") is not None else None
+            stream_gap = demand * (100.0 - competition) / 100.0 if competition is not None else None
+            streamer_score, streamer_available = _weighted_score(
+                {
+                    "demand": (demand, 0.40),
+                    "competition_inverse": (100.0 - competition if competition is not None else None, 0.25),
+                    "opportunity_gap": (stream_gap, 0.35),
+                }
+            )
             trend_rows.append(
                 {
                     "steam_app_id": app_id,
                     "audience": "streamer",
-                    "score": round(
-                        0.6 * _bounded_score(stream.get("hours_watched_30d", 0), 100_000)
-                        + 0.4 * _bounded_score(stream.get("average_viewers_30d", 0), 100_000),
-                        4,
-                    ),
+                    "score": streamer_score,
                     "components": {
                         "streaming_available": True,
+                        "demand": demand,
+                        "competition": competition,
+                        "category_saturation": competition,
+                        "opportunity_gap": stream_gap,
                         "hours_watched_30d": stream.get("hours_watched_30d"),
                         "average_viewers_30d": stream.get("average_viewers_30d"),
                         "average_channels_30d": stream.get("average_channels_30d"),
+                        "signals_available": streamer_available,
                     },
                     "observed_at": observed_at,
                     "source_name": "GamePulse Full Catalog Import",
-                    "source_mode": "derived",
+                    "source_mode": "derived_multi_signal",
                     "confidence": "medium",
                 }
             )
