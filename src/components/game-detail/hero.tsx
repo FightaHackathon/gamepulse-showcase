@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import type { GameDetail } from "@/lib/api/types";
 
 export function GameDetailHero({ game }: { game: GameDetail }) {
-  const labels = [...game.genres, ...game.tags].filter(
+  const labels = [...game.genres, ...game.tags].filter((value) => value.trim().toLowerCase() !== "video production").filter(
     (value, index, all) => all.findIndex((item) => item.toLowerCase() === value.toLowerCase()) === index,
   );
 

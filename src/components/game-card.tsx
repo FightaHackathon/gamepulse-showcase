@@ -16,6 +16,7 @@ export function GameCard({
   primaryScore,
   supportingMetrics,
   reason,
+  href,
 }: {
   steamAppId: number;
   name: string;
@@ -23,12 +24,13 @@ export function GameCard({
   primaryScore: number | null;
   supportingMetrics: SupportingMetric[];
   reason: string;
+  href?: string;
 }) {
   const visibleMetrics = supportingMetrics.slice(0, 2);
 
   return (
     <Link
-      href={`/games/${steamAppId}`}
+      href={href ?? `/games/${steamAppId}`}
       className="group block rounded-[1.35rem] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/80"
     >
       <Card className="overflow-hidden transition duration-200 hover:-translate-y-1 hover:border-violet-400/20 hover:bg-white/[0.05]">
@@ -53,14 +55,15 @@ export function GameCard({
             <dl className="mt-5 grid grid-cols-2 gap-3 border-y border-white/[0.065] py-4">
               {visibleMetrics.map((metric) => (
                 <div key={metric.label}>
-                  <dt className="text-[0.66rem] font-semibold uppercase tracking-[0.11em] text-zinc-600">{metric.label}</dt>
+                  <dt title={metric.label === "Peak CCU" ? "Peak CCU means peak concurrent users: the highest number of players online at the same time." : undefined} className="text-[0.66rem] font-semibold uppercase tracking-[0.11em] text-zinc-600">{metric.label}</dt>
                   <dd className="mt-1.5 ml-0 text-sm font-semibold text-zinc-200">{metric.value}</dd>
                 </div>
               ))}
             </dl>
           ) : null}
 
-          <p className="mt-4 mb-0 line-clamp-2 text-sm leading-6 text-zinc-500">{reason}</p>
+          <div className="mt-4 text-[0.66rem] font-semibold uppercase tracking-[0.11em] text-zinc-600">Why this game</div>
+          <p className="mt-1.5 mb-0 line-clamp-3 text-sm leading-6 text-zinc-500">{reason}</p>
         </div>
       </Card>
     </Link>

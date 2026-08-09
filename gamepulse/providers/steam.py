@@ -235,20 +235,17 @@ class SteamProvider:
         if not resolved:
             raise SteamProviderError("Steam profile is not publicly visible or could not be found")
 
-        try:
-            games_page = self._fetch_profile_page(f"https://steamcommunity.com/profiles/{resolved}/games/?tab=all")
-        except SteamProviderError:
-            games_page = ""
-        games_parser = _PublicGamesPageParser()
-        games_parser.feed(games_page)
-        if games_parser.games:
-            return PlayerLibrary(resolved, tuple(games_parser.games), "Public Steam games page", True)
-
         parser = _PublicProfilePageParser()
         parser.feed(page)
-        if not parser.games:
-            raise SteamProviderError("Steam Game Details are private or no recent games are publicly visible")
-        return PlayerLibrary(resolved, tuple(parser.games), "Public Steam profile page", False)
+        if parser.games:
+            return PlayerLibrary(resolved, tuple(parser.games), "Public Steam profile page", False)
+
+        games_page = self._fetch_profile_page(f"https://steamcommunity.com/profiles/{resolved}/games/?tab=all")
+        games_parser = _PublicGamesPageParser()
+        games_parser.feed(games_page)
+        if not games_parser.games:
+            raise SteamProviderError("Steam Game Details are private or no public games are visible")
+        return PlayerLibrary(resolved, tuple(games_parser.games), "Public Steam games page", True)
 
     def resolve_profile(self, profile: str) -> str:
         steam_id, vanity = parse_steam_profile(profile)

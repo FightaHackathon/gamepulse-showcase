@@ -17,6 +17,17 @@ class MetricResponse(BaseModel):
     signal_type: str
 
 
+class ReviewExcerptResponse(BaseModel):
+    text: str
+    helpful_votes: int | None = None
+    created_at_unix: int | None = None
+
+
+class ReviewExcerptsResponse(BaseModel):
+    positive: list[ReviewExcerptResponse] = Field(default_factory=list)
+    negative: list[ReviewExcerptResponse] = Field(default_factory=list)
+
+
 class GameDetailResponse(BaseModel):
     steam_app_id: int
     name: str
@@ -25,6 +36,8 @@ class GameDetailResponse(BaseModel):
     owners_low: int | None = None
     owners_high: int | None = None
     peak_ccu: int | None = None
+    positive_reviews: int | None = None
+    negative_reviews: int | None = None
     total_reviews: int | None = None
     review_score: float | None = None
     header_image_url: str | None = None
@@ -33,6 +46,9 @@ class GameDetailResponse(BaseModel):
     genres: list[str] = Field(default_factory=list)
     steam_store_url: str
     metrics: list[MetricResponse] = Field(default_factory=list)
+    review_excerpts: ReviewExcerptsResponse = Field(default_factory=ReviewExcerptsResponse)
+    refresh_status: str = "not_requested"
+    refresh_providers: list[dict] = Field(default_factory=list)
 
 
 class HistoryResponse(BaseModel):

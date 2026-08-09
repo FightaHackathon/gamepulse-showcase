@@ -1,9 +1,11 @@
 import { SourceMeta } from "@/components/source-meta";
-import { TimeSeriesChart } from "@/components/charts/time-series-chart";
+import { MetricEvidence } from "@/components/game-detail/metric-evidence";
 import type { MetricValue } from "@/lib/api/types";
 
-export function PlayerActivity({ points }: { points: MetricValue[] }) {
+export function PlayerActivity({ points, fallbackPoint }: { points: MetricValue[]; fallbackPoint?: MetricValue }) {
   const latest = [...points].sort((a, b) => Date.parse(b.observed_at) - Date.parse(a.observed_at))[0];
+  const metric = latest?.metric ?? fallbackPoint?.metric;
+  const metricLabel = metric === "peak_ccu" ? "Peak CCU" : "Players now";
 
   return (
     <section className="mt-16 border-t border-white/[0.07] pt-10">
@@ -16,7 +18,7 @@ export function PlayerActivity({ points }: { points: MetricValue[] }) {
           <SourceMeta sourceName={latest.source_name} observedAt={latest.observed_at} confidence={latest.confidence} />
         ) : null}
       </div>
-      <TimeSeriesChart label="Steam player history" points={points} />
+      <MetricEvidence chartLabel={`${metricLabel} history`} points={points} fallbackPoint={fallbackPoint} metricLabel={metricLabel} />
     </section>
   );
 }

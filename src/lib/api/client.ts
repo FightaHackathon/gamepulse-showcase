@@ -31,7 +31,11 @@ function apiUrl(path: string) {
   return `${serverApiBaseUrl()}${path}`;
 }
 
-function safeErrorMessage(status: number) {
+function safeErrorMessage(status: number, path: string) {
+  if (path === "/api/player/analyze") {
+    if (status === 404) return "The GamePulse player service route was not found. Check that the local API is running.";
+    if (status === 422) return "The Steam profile or API key could not be validated.";
+  }
   if (status === 404) return "Game not found";
   if (status === 503) return "GamePulse data is temporarily unavailable.";
   if (status === 401) return "This GamePulse request is not authorized.";
@@ -39,24 +43,30 @@ function safeErrorMessage(status: number) {
 }
 
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  if (!headers.has("Accept")) {
+    headers.set("Accept", "application/json");
+  }
+  if (typeof init?.body === "string" && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
   const response = await fetch(apiUrl(path), {
     ...init,
     cache: "no-store",
-    headers: {
-      Accept: "application/json",
-      ...init?.headers,
-    },
+    headers,
   });
 
   if (!response.ok) {
-    throw new ApiError(response.status, safeErrorMessage(response.status));
+    throw new ApiError(response.status, safeErrorMessage(response.status, path));
   }
 
   return (await response.json()) as T;
 }
 
-export function getGame(appId: number): Promise<GameDetail> {
-  return apiFetch<GameDetail>(`/api/games/${encodeURIComponent(String(appId))}`);
+export function getGame(appId: number, refresh = false): Promise<GameDetail> {
+  const suffix = refresh ? "?refresh=true" : "";
+  return apiFetch<GameDetail>(`/api/games/${encodeURIComponent(String(appId))}${suffix}`);
 }
 
 export async function getGameHistory(appId: number, metric: string): Promise<GameHistory["points"]> {
@@ -71,11 +81,13 @@ export async function getSourceStatus(): Promise<SourceStatus[]> {
   return response.sources;
 }
 
-export function analyzePlayer(profileUrl: string, steamWebApiKey?: string): Promise<PlayerAnalyzeResponse> {
+export function analyzePlayer(profileUrl: string, steamWebApiKey?: string, page?: number): Promise<PlayerAnalyzeResponse> {
+  const body: { steam_profile_url: string; page?: number } = { steam_profile_url: profileUrl };
+  if (page !== undefined) body.page = page;
   return apiFetch<PlayerAnalyzeResponse>("/api/player/analyze", {
     method: "POST",
     headers: steamWebApiKey ? { "X-GamePulse-Steam-Key": steamWebApiKey } : undefined,
-    body: JSON.stringify({ steam_profile_url: profileUrl }),
+    body: JSON.stringify(body),
   });
 }
 

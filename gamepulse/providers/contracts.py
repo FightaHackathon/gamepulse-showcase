@@ -35,6 +35,27 @@ class ProviderMetric:
                 raise ValueError(f"{field_name} is required")
 
 
+@dataclass(frozen=True)
+class ReviewExcerpt:
+    review_id: str
+    text: str
+    recommended: bool
+    helpful_votes: int | None
+    funny_votes: int | None
+    created_at_unix: int | None
+    source_name: str
+    source_mode: str
+    source_url: str | None = None
+
+    def __post_init__(self) -> None:
+        if not str(self.review_id).strip():
+            raise ValueError("review_id is required")
+        if not str(self.text).strip():
+            raise ValueError("text is required")
+        if not str(self.source_name).strip() or not str(self.source_mode).strip():
+            raise ValueError("review provenance is required")
+
+
 class ProviderError(RuntimeError):
     """Recoverable external provider error."""
 

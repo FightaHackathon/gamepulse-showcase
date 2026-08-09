@@ -18,6 +18,8 @@ export type GameDetail = {
   owners_low: number | null;
   owners_high: number | null;
   peak_ccu: number | null;
+  positive_reviews?: number | null;
+  negative_reviews?: number | null;
   total_reviews: number | null;
   review_score: number | null;
   header_image_url: string | null;
@@ -26,6 +28,23 @@ export type GameDetail = {
   genres: string[];
   steam_store_url: string;
   metrics: MetricValue[];
+  review_excerpts?: {
+    positive: ReviewExcerpt[];
+    negative: ReviewExcerpt[];
+  };
+  refresh_status?: string;
+  refresh_providers?: Array<{
+    provider_name: string;
+    status: string;
+    metrics_written: number;
+    error: string | null;
+  }>;
+};
+
+export type ReviewExcerpt = {
+  text: string;
+  helpful_votes: number | null;
+  created_at_unix: number | null;
 };
 
 export type GameHistory = {
@@ -62,8 +81,13 @@ export type PlayerRecommendation = {
   header_image_url: string | null;
   review_score: number | null;
   current_players: number | null;
+  peak_ccu?: number | null;
+  release_date?: string | null;
   steam_store_url: string;
   explanation: string;
+  owned?: boolean;
+  tags?: string[];
+  genres?: string[];
   factor_breakdown: {
     personal_fit: PlayerFactor;
     reviews: PlayerFactor;
@@ -77,6 +101,12 @@ export type PlayerAnalyzeResponse = {
   profile: string;
   source_name: string;
   library_complete: boolean;
+  paging?: {
+    page: number;
+    page_size: number;
+    has_more: boolean;
+    next_page: number | null;
+  };
 };
 
 export type StreamerRecommendation = {
@@ -101,7 +131,7 @@ export type DeveloperOpportunity = {
   name: string;
   genre: string[];
   score: number;
-  signals: Record<string, number>;
+  signals: Record<string, number | null>;
   evidence: string[];
   header_image_url: string | null;
   steam_store_url: string;
@@ -114,7 +144,7 @@ export type DeveloperOpportunitiesResponse = {
 export type DeveloperConceptResponse = {
   data_evidence: {
     selected_game: string;
-    signals: Record<string, number>;
+    signals: Record<string, number | null>;
     observations: string[];
   };
   ai_generated_idea: {

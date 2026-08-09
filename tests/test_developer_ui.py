@@ -1,9 +1,17 @@
 import unittest
 
 from streamlit.testing.v1 import AppTest
+from gamepulse.market_analysis import MarketSnapshot
+from gamepulse.ui.developer import _player_metric_value
 
 
 class DeveloperModeUITests(unittest.TestCase):
+    def test_zero_player_signal_is_not_reported_as_missing(self):
+        snapshot = MarketSnapshot(10, None, None, None, None, None, 0, "Local", "fixture", "2026-08-01")
+
+        self.assertEqual(_player_metric_value(snapshot), "0")
+        self.assertEqual(_player_metric_value(MarketSnapshot(10, None, None, None, None, None, None, "Local", "fixture", "2026-08-01")), "Unavailable")
+
     def test_developer_mode_exposes_comparables_and_bounded_fit_scores(self):
         app = AppTest.from_file("app.py", default_timeout=20).run()
         app.radio[0].set_value("Developer").run()

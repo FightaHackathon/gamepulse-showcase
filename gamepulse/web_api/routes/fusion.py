@@ -9,8 +9,8 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from gamepulse.db.models import GameModel, SteamSnapshotModel, StreamingSnapshotModel, TrendScoreModel
-from gamepulse.db.repositories import GameRepository
+from gamepulse.db.models import GameGenreModel, GameModel, GameTagModel, SteamSnapshotModel, StreamingSnapshotModel, TrendScoreModel
+from gamepulse.db.repositories import GameRecord, GameRepository
 from gamepulse.trend_artifact import load_trend_artifact
 from gamepulse.web_api.dependencies import get_db_session
 
@@ -65,6 +65,98 @@ def _latest_trend(session: Session, app_id: int, audience: str) -> TrendScoreMod
         .order_by(TrendScoreModel.observed_at.desc(), TrendScoreModel.id.desc())
     ).first()
     return trend or load_trend_artifact().get((app_id, audience))
+
+
+_DEVELOPER_STEAM_METRICS = {"current_players", "peak_ccu"}
+_DEVELOPER_STREAMING_METRICS = {"average_viewers_30d", "viewer_count", "channel_count", "category_growth", "growth_pct"}
+
+
+def _latest_values_bulk(session: Session, app_ids: list[int], model, metrics: set[str]) -> dict[int, dict[str, float]]:
+    if not app_ids:
+        return {}
+    rows = session.scalars(
+        select(model)
+        .where(model.steam_app_id.in_(app_ids), model.metric.in_(metrics))
+        .order_by(model.steam_app_id, model.metric, model.observed_at.desc(), model.id.desc())
+    ).all()
+    values: defaultdict[int, dict[str, float]] = defaultdict(dict)
+    for row in rows:
+        app_values = values[row.steam_app_id]
+        if row.metric not in app_values and row.value_numeric is not None:
+            app_values[row.metric] = max(0.0, float(row.value_numeric))
+    return dict(values)
+
+
+def _developer_opportunity_data(
+    session: Session,
+) -> tuple[list[GameRecord], dict[int, dict[str, float]], dict[int, dict[str, float]], dict[int, object | None]]:
+    models = session.scalars(
+        select(GameModel)
+        .order_by(GameModel.name, GameModel.steam_app_id)
+        .limit(100)
+    ).all()
+    if not models:
+        return [], {}, {}, {}
+
+    app_ids = [model.steam_app_id for model in models]
+    tags_by_game: defaultdict[int, list[str]] = defaultdict(list)
+    for app_id, value in session.execute(
+        select(GameTagModel.steam_app_id, GameTagModel.value)
+        .where(GameTagModel.steam_app_id.in_(app_ids))
+        .order_by(GameTagModel.steam_app_id, GameTagModel.value)
+    ):
+        tags_by_game[app_id].append(value)
+    genres_by_game: defaultdict[int, list[str]] = defaultdict(list)
+    for app_id, value in session.execute(
+        select(GameGenreModel.steam_app_id, GameGenreModel.value)
+        .where(GameGenreModel.steam_app_id.in_(app_ids))
+        .order_by(GameGenreModel.steam_app_id, GameGenreModel.value)
+    ):
+        genres_by_game[app_id].append(value)
+
+    games = [
+        GameRecord(
+            steam_app_id=model.steam_app_id,
+            name=model.name,
+            release_date=model.release_date,
+            price_usd=model.price_usd,
+            owners_low=model.owners_low,
+            owners_high=model.owners_high,
+            peak_ccu=model.peak_ccu,
+            total_reviews=model.total_reviews,
+            review_score=model.review_score,
+            header_image_url=model.header_image_url,
+            short_description=model.short_description,
+            tags=tuple(tags_by_game[model.steam_app_id]),
+            genres=tuple(genres_by_game[model.steam_app_id]),
+        )
+        for model in models
+    ]
+    steam_values = _latest_values_bulk(session, app_ids, SteamSnapshotModel, _DEVELOPER_STEAM_METRICS)
+    stream_values = _latest_values_bulk(session, app_ids, StreamingSnapshotModel, _DEVELOPER_STREAMING_METRICS)
+
+    trend_rows = session.scalars(
+        select(TrendScoreModel)
+        .where(TrendScoreModel.steam_app_id.in_(app_ids), TrendScoreModel.audience.in_({"developer", "player"}))
+        .order_by(TrendScoreModel.steam_app_id, TrendScoreModel.audience, TrendScoreModel.observed_at.desc(), TrendScoreModel.id.desc())
+    ).all()
+    db_trends: dict[tuple[int, str], TrendScoreModel] = {}
+    for row in trend_rows:
+        db_trends.setdefault((row.steam_app_id, row.audience), row)
+
+    artifact: dict[tuple[int, str], object] = {}
+    if any((app_id, "developer") not in db_trends for app_id in app_ids):
+        artifact = load_trend_artifact()
+    trends = {
+        app_id: (
+            db_trends.get((app_id, "developer"))
+            or artifact.get((app_id, "developer"))
+            or db_trends.get((app_id, "player"))
+            or artifact.get((app_id, "player"))
+        )
+        for app_id in app_ids
+    }
+    return games, steam_values, stream_values, trends
 
 
 def _normalized_component(value: object) -> float | None:
@@ -138,10 +230,13 @@ def streamer_simulate(request: StreamerSimulationRequest, session: Session = Dep
     return {"simulator": True, "mode": request.mode, "recommendations": _streamer_rows(session, request)}
 
 
-def _developer_evidence(session: Session, game) -> tuple[list[str], dict[str, float]]:
-    steam = _latest_values(session, game.steam_app_id, SteamSnapshotModel, {"current_players", "peak_ccu"})
-    stream = _latest_values(session, game.steam_app_id, StreamingSnapshotModel, {"average_viewers_30d", "viewer_count", "channel_count", "category_growth", "growth_pct"})
-    trend = _latest_trend(session, game.steam_app_id, "developer") or _latest_trend(session, game.steam_app_id, "player")
+_UNSET = object()
+
+
+def _developer_evidence(session: Session, game, *, steam: dict[str, float] | None = None, stream: dict[str, float] | None = None, trend=_UNSET) -> tuple[list[str], dict[str, float]]:
+    steam = steam if steam is not None else _latest_values(session, game.steam_app_id, SteamSnapshotModel, _DEVELOPER_STEAM_METRICS)
+    stream = stream if stream is not None else _latest_values(session, game.steam_app_id, StreamingSnapshotModel, _DEVELOPER_STREAMING_METRICS)
+    trend = trend if trend is not _UNSET else _latest_trend(session, game.steam_app_id, "developer") or _latest_trend(session, game.steam_app_id, "player")
     components = trend.components if trend is not None else {}
     players = steam.get("current_players", float(game.peak_ccu or 0))
     viewers = stream.get("average_viewers_30d", stream.get("viewer_count", 0.0))
@@ -187,8 +282,15 @@ def _developer_evidence(session: Session, game) -> tuple[list[str], dict[str, fl
 @router.get("/developer/opportunities")
 def developer_opportunities(session: Session = Depends(get_db_session)):
     opportunities = []
-    for game in GameRepository(session).list_games(limit=100):
-        evidence, signals = _developer_evidence(session, game)
+    games, steam_values, stream_values, trends = _developer_opportunity_data(session)
+    for game in games:
+        evidence, signals = _developer_evidence(
+            session,
+            game,
+            steam=steam_values.get(game.steam_app_id, {}),
+            stream=stream_values.get(game.steam_app_id, {}),
+            trend=trends.get(game.steam_app_id),
+        )
         opportunities.append({"steam_app_id": game.steam_app_id, "name": game.name, "genre": list(game.genres), "score": signals["opportunity_score"], "signals": signals, "evidence": evidence, "steam_store_url": game.steam_store_url, "header_image_url": game.header_image_url})
     opportunities.sort(key=lambda item: (-item["score"], item["name"].casefold(), item["steam_app_id"]))
     return {"opportunities": opportunities}

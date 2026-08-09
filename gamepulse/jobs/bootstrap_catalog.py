@@ -89,7 +89,7 @@ def _appdetails_url(app_id: int) -> str:
 
 
 def _review_url(app_id: int) -> str:
-    query = urllib.parse.urlencode({"json": 1, "language": "all", "purchase_type": "all"})
+    query = urllib.parse.urlencode({"json": 1, "language": "english", "purchase_type": "all"})
     return f"{STEAM_STORE_REVIEWS_URL.format(app_id=int(app_id))}?{query}"
 
 

@@ -7,11 +7,13 @@ from gamepulse.db.models import (
     Base,
     GameModel,
     ProviderRunModel,
+    ReviewModel,
     SteamSnapshotModel,
     SteamSpySnapshotModel,
     StreamingSnapshotModel,
 )
 from gamepulse.providers.contracts import ProviderError, ProviderMetric
+from gamepulse.providers.contracts import ReviewExcerpt
 from gamepulse.services.snapshot_refresh import SnapshotRefreshService
 
 
@@ -33,6 +35,24 @@ class SteamProvider:
                 confidence="high",
             )
         ]
+
+    def fetch_reviews(self, game):
+        return [
+            ReviewExcerpt(
+                review_id="steam-public:10:p1",
+                text="A real public review",
+                recommended=True,
+                helpful_votes=7,
+                funny_votes=0,
+                created_at_unix=NOW_UNIX,
+                source_name="Steam Store reviews",
+                source_mode="public_store_api",
+                source_url="https://store.steampowered.com/appreviews/10",
+            )
+        ]
+
+
+NOW_UNIX = 1_786_186_800
 
 
 class FailingStreamingProvider:
@@ -97,5 +117,27 @@ def test_refresh_persists_successes_and_records_provider_failure():
             ("SteamSpy", "success"),
         ]
         assert "temporary upstream failure" in (runs[1].error_text or "")
+
+    engine.dispose()
+
+
+def test_selected_refresh_persists_public_review_excerpts():
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        session.add(GameModel(steam_app_id=10, name="Example Game"))
+        session.commit()
+
+        report = SnapshotRefreshService(session, [SteamProvider()], clock=lambda: NOW).refresh_game(10)
+
+        assert report.status == "success"
+        assert report.metrics_written == 2
+        row = session.get(ReviewModel, "steam-public:10:p1")
+        assert row is not None
+        assert row.review_text == "A real public review"
+        assert row.recommended is True
+        assert row.source_name == "Steam Store reviews"
+        assert row.source_mode == "public_store_api"
 
     engine.dispose()

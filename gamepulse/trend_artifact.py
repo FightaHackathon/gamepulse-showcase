@@ -48,3 +48,26 @@ def load_trend_artifact(path: str = str(ARTIFACT_PATH)) -> dict[tuple[int, str],
         )
         rows[(row.steam_app_id, row.audience)] = row
     return rows
+
+
+@lru_cache(maxsize=1)
+def load_peak_ccu_artifact(path: str = str(ARTIFACT_PATH)) -> dict[int, int]:
+    """Load only player peak values needed by recommendation ranking."""
+
+    artifact = Path(path)
+    if not artifact.is_file():
+        return {}
+    with gzip.open(artifact, "rt", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    values: dict[int, int] = {}
+    for item in payload:
+        if str(item.get("audience")) != "player":
+            continue
+        raw_value = (item.get("components") or {}).get("peak_ccu")
+        try:
+            numeric = float(raw_value)
+        except (TypeError, ValueError):
+            continue
+        if numeric.is_integer() and numeric >= 0:
+            values[int(item["steam_app_id"])] = int(numeric)
+    return values

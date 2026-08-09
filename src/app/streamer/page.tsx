@@ -17,15 +17,18 @@ export default function StreamerPage() {
   const [genres, setGenres] = useState("");
   const [results, setResults] = useState<StreamerRecommendation[]>([]);
   const [status, setStatus] = useState("Simulate a zero-audience channel using cached category signals.");
+  const [hasRun, setHasRun] = useState(false);
 
   async function runSimulation() {
     setStatus("Comparing demand, competition, ratio, momentum, and category growth…");
     try {
       const response = await simulateStreamer(mode, genres.split(",").map((value) => value.trim()).filter(Boolean));
       setResults(response.recommendations);
+      setHasRun(true);
       setStatus(`${response.recommendations.length} categories ranked for ${response.mode.replaceAll("_", " ")}.`);
     } catch {
       setResults([]);
+      setHasRun(false);
       setStatus("The simulator could not load cached signals right now.");
     }
   }
@@ -71,6 +74,12 @@ export default function StreamerPage() {
             ))}
           </div>
         </section>
+      ) : null}
+      {hasRun && !results.length ? (
+        <Card className="mt-14 max-w-4xl p-6">
+          <p className="m-0 text-sm font-medium text-zinc-300">No categories matched this simulation.</p>
+          <p className="mt-2 mb-0 text-sm leading-6 text-zinc-600">Try broader categories or run the simulator again after cached signals refresh.</p>
+        </Card>
       ) : null}
     </div>
   );

@@ -42,6 +42,10 @@ def _player_metric_label(snapshot: MarketSnapshot) -> str:
     return "Current players" if snapshot.player_metric == "current" else "Peak CCU"
 
 
+def _player_metric_value(snapshot: MarketSnapshot) -> str:
+    return f"{snapshot.peak_ccu:,}" if snapshot.peak_ccu is not None else "Unavailable"
+
+
 def _gross_detail(snapshot: MarketSnapshot) -> str:
     if snapshot.discount_pct is None:
         return "Owners × current price scenario; not verified revenue"
@@ -121,7 +125,7 @@ def render(st, settings: Settings, catalog: Catalog, state: DemoState) -> DemoSt
     st.subheader("Public market signals")
     signal_columns = st.columns(3)
     render_signal_card(signal_columns[0], "Estimated owners", _owner_label(snapshot), "Public estimate; not a verified download count")
-    render_signal_card(signal_columns[1], _player_metric_label(snapshot), f"{snapshot.peak_ccu:,}" if snapshot.peak_ccu else "Unavailable", "Observed concurrent players; current or peak depends on source")
+    render_signal_card(signal_columns[1], _player_metric_label(snapshot), _player_metric_value(snapshot), "Observed concurrent players; current or peak depends on source")
     render_signal_card(signal_columns[2], "Gross scenario", _gross_label(analysis), _gross_detail(snapshot))
     st.caption(analysis.disclaimer)
     st.caption(f"Source: {snapshot.source_mode} · {snapshot.source_name} · observed {snapshot.observed_at} · confidence {snapshot.confidence}")

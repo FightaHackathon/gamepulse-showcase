@@ -7,9 +7,9 @@ from typing import Iterable
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from gamepulse.db.models import ProviderRunModel, SteamSnapshotModel, SteamSpySnapshotModel, StreamingSnapshotModel
+from gamepulse.db.models import ProviderRunModel, ReviewModel, SteamSnapshotModel, SteamSpySnapshotModel, StreamingSnapshotModel
 from gamepulse.db.repositories import GameRepository
-from gamepulse.providers.contracts import GameIdentity, GameSignalProvider, ProviderMetric
+from gamepulse.providers.contracts import GameIdentity, GameSignalProvider, ProviderMetric, ReviewExcerpt
 
 
 @dataclass(frozen=True)
@@ -139,6 +139,27 @@ class SnapshotRefreshService:
             row.confidence = exemplar.confidence
             row.source_url = exemplar.source_url
 
+    def _persist_reviews(self, game: GameIdentity, excerpts: list[ReviewExcerpt]) -> None:
+        for excerpt in excerpts:
+            row = self.session.get(ReviewModel, excerpt.review_id)
+            values = {
+                "steam_app_id": game.steam_app_id,
+                "review_text": excerpt.text,
+                "recommended": excerpt.recommended,
+                "helpful_votes": excerpt.helpful_votes,
+                "funny_votes": excerpt.funny_votes,
+                "created_at_unix": excerpt.created_at_unix,
+                "source_game_name": game.name,
+                "source_name": excerpt.source_name,
+                "source_mode": excerpt.source_mode,
+                "source_url": excerpt.source_url,
+            }
+            if row is None:
+                self.session.add(ReviewModel(review_id=excerpt.review_id, **values))
+            else:
+                for key, value in values.items():
+                    setattr(row, key, value)
+
     def refresh_catalog(self, limit: int | None = None) -> RefreshReport:
         games = self._games(limit)
         results: list[ProviderRunResult] = []
@@ -201,3 +222,60 @@ class SnapshotRefreshService:
         else:
             overall = "success"
         return RefreshReport(overall, len(games), total_metrics, tuple(results))
+
+    def refresh_game(self, app_id: int) -> RefreshReport:
+        """Refresh one selected game without broadening into a catalog scan."""
+        record = GameRepository(self.session).get_game(app_id)
+        if record is None:
+            return RefreshReport("failure", 0, 0, ())
+
+        results: list[ProviderRunResult] = []
+        total_metrics = 0
+        game = GameIdentity(record.steam_app_id, record.name, release_date=record.release_date)
+        for provider in self.providers:
+            started_at = self.clock()
+            written = 0
+            error: str | None = None
+            signal_type = str(getattr(provider, "signal_type", "")).strip().casefold()
+            try:
+                if signal_type not in {"steam", "streaming", "steamspy"}:
+                    raise ValueError(f"unsupported signal_type: {signal_type or 'missing'}")
+                metrics = list(provider.fetch(game))
+                if signal_type == "steamspy":
+                    self._persist_steamspy(game, metrics)
+                else:
+                    for metric in metrics:
+                        self._persist_regular(signal_type, game, metric)
+                written = len(metrics)
+                review_fetcher = getattr(provider, "fetch_reviews", None)
+                if callable(review_fetcher):
+                    excerpts = list(review_fetcher(game))
+                    self._persist_reviews(game, excerpts)
+                    written += len(excerpts)
+            except Exception as exc:
+                error = str(exc)
+
+            status = "partial" if written and error else "success" if written else "failure" if error else "success"
+            self.session.add(
+                ProviderRunModel(
+                    provider_name=str(getattr(provider, "provider_name", provider.__class__.__name__)),
+                    started_at=started_at,
+                    finished_at=self.clock(),
+                    status=status,
+                    error_text=error,
+                    metrics_written=written,
+                )
+            )
+            self.session.commit()
+            results.append(
+                ProviderRunResult(
+                    provider_name=str(getattr(provider, "provider_name", provider.__class__.__name__)),
+                    status=status,
+                    metrics_written=written,
+                    error=error,
+                )
+            )
+            total_metrics += written
+
+        overall = "success" if results and all(item.status == "success" for item in results) else "partial_success" if total_metrics else "failure"
+        return RefreshReport(overall, 1, total_metrics, tuple(results))

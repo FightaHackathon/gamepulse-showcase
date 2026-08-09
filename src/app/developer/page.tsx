@@ -6,14 +6,19 @@ import { Card } from "@/components/ui/card";
 import { generateDeveloperConcept, getDeveloperOpportunities } from "@/lib/api/client";
 import type { DeveloperConceptResponse, DeveloperOpportunity } from "@/lib/api/types";
 
+function formatSignal(value: number | null) {
+  return value === null ? "Unavailable" : Math.round(value);
+}
+
 export default function DeveloperPage() {
   const [opportunities, setOpportunities] = useState<DeveloperOpportunity[]>([]);
   const [direction, setDirection] = useState("co-op action");
   const [concept, setConcept] = useState<DeveloperConceptResponse | null>(null);
   const [status, setStatus] = useState("Loading cached market opportunities…");
+  const [opportunitiesLoaded, setOpportunitiesLoaded] = useState(false);
 
   useEffect(() => {
-    getDeveloperOpportunities().then((response) => { setOpportunities(response.opportunities); setStatus("Market evidence is ready for exploration."); }).catch(() => setStatus("Market evidence is temporarily unavailable."));
+    getDeveloperOpportunities().then((response) => { setOpportunities(response.opportunities); setOpportunitiesLoaded(true); setStatus("Market evidence is ready for exploration."); }).catch(() => setStatus("Market evidence is temporarily unavailable."));
   }, []);
 
   async function createConcept() {
@@ -31,7 +36,7 @@ export default function DeveloperPage() {
         <section aria-labelledby="market-opportunities-title">
           <div className="flex items-end justify-between gap-4"><div><h2 id="market-opportunities-title" className="m-0 text-2xl font-semibold tracking-[-0.035em] text-white">Market opportunities</h2><p className="mt-2 mb-0 text-sm text-zinc-500" aria-live="polite">{status}</p></div></div>
           <h3 className="mt-7 mb-0 text-[0.68rem] font-semibold uppercase tracking-[0.13em] text-violet-300">DATA EVIDENCE</h3>
-          <div className="mt-4 grid gap-4">{opportunities.map((item) => <Card key={item.steam_app_id} className="p-5"><div className="flex items-start justify-between gap-4"><div><h3 className="m-0 text-base font-semibold text-white">{item.name}</h3><p className="mt-2 mb-0 text-sm text-zinc-500">{item.genre.join(" · ") || "Emerging category"}</p></div><span className="text-xl font-semibold text-violet-300">{Math.round(item.score)}</span></div><div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-xs text-zinc-500">{Object.entries(item.signals).filter(([key]) => key !== "opportunity_score").map(([key, value]) => <span key={key}>{key.replaceAll("_", " ")} {Math.round(value)}</span>)}</div><p className="mt-4 mb-0 text-sm leading-6 text-zinc-500">{item.evidence[0]}</p></Card>)}</div>
+          <div className="mt-4 grid gap-4">{opportunities.length ? opportunities.map((item) => <Card key={item.steam_app_id} className="p-5"><div className="flex items-start justify-between gap-4"><div><h3 className="m-0 text-base font-semibold text-white">{item.name}</h3><p className="mt-2 mb-0 text-sm text-zinc-500">{item.genre.join(" · ") || "Emerging category"}</p></div><span className="text-xl font-semibold text-violet-300">{Math.round(item.score)}</span></div><div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-xs text-zinc-500">{Object.entries(item.signals).filter(([key]) => key !== "opportunity_score").map(([key, value]) => <span key={key}>{key.replaceAll("_", " ")} {formatSignal(value)}</span>)}</div><p className="mt-4 mb-0 text-sm leading-6 text-zinc-500">{item.evidence[0]}</p></Card>) : opportunitiesLoaded ? <Card className="p-6"><p className="m-0 text-sm font-medium text-zinc-300">No market opportunities are available yet.</p><p className="mt-2 mb-0 text-sm leading-6 text-zinc-600">Cached evidence will appear here after the catalogue has been seeded.</p></Card> : null}</div>
         </section>
 
         <section aria-labelledby="concept-title">

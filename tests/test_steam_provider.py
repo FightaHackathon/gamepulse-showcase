@@ -71,6 +71,14 @@ PUBLIC_GAMES_HTML = """
 """
 
 
+PUBLIC_EMPTY_PROFILE_HTML = """
+<script>
+g_rgProfileData = {"steamid":"76561199124746372"};
+</script>
+<div class="recent_games"></div>
+"""
+
+
 class SteamProviderTests(unittest.TestCase):
     def test_parse_numeric_profile_and_vanity_profile(self):
         self.assertEqual(parse_steam_profile("https://steamcommunity.com/profiles/76561198000000000"), ("76561198000000000", None))
@@ -119,7 +127,7 @@ class SteamProviderTests(unittest.TestCase):
 
     @patch("gamepulse.providers.steam.urllib.request.urlopen")
     def test_public_games_page_reads_all_visible_owned_games_and_playtime_without_api_key(self, urlopen):
-        urlopen.side_effect = [_TextResponse(PUBLIC_PROFILE_HTML), _TextResponse(PUBLIC_GAMES_HTML)]
+        urlopen.side_effect = [_TextResponse(PUBLIC_EMPTY_PROFILE_HTML), _TextResponse(PUBLIC_GAMES_HTML)]
 
         library = SteamProvider(None).get_library("76561199124746372")
 

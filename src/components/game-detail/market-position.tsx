@@ -8,8 +8,10 @@ function compact(value: number) {
 export function MarketPosition({ game }: { game: GameDetail }) {
   const low = game.metrics.find((item) => item.metric === "owners_low_estimate");
   const high = game.metrics.find((item) => item.metric === "owners_high_estimate");
-  const source = low ?? high;
-  const hasRange = low?.value_numeric !== null && low?.value_numeric !== undefined && high?.value_numeric !== null && high?.value_numeric !== undefined;
+  const source = low?.value_numeric != null ? low : high?.value_numeric != null ? high : undefined;
+  const lowValue = low?.value_numeric ?? game.owners_low;
+  const highValue = high?.value_numeric ?? game.owners_high;
+  const hasRange = lowValue !== null && lowValue !== undefined && highValue !== null && highValue !== undefined;
 
   return (
     <section className="mt-16 border-t border-white/[0.07] pt-10 pb-16">
@@ -21,7 +23,7 @@ export function MarketPosition({ game }: { game: GameDetail }) {
       <div className="mt-7 max-w-2xl rounded-2xl border border-white/[0.07] bg-white/[0.025] p-5">
         <div className="text-[0.67rem] font-semibold uppercase tracking-[0.12em] text-zinc-600">Estimated owners</div>
         <div className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-white">
-          {hasRange ? `${compact(low!.value_numeric!)} – ${compact(high!.value_numeric!)}` : "Unavailable"}
+          {hasRange ? `${compact(lowValue)} – ${compact(highValue)}` : "Unavailable"}
         </div>
         {source ? (
           <SourceMeta
@@ -30,6 +32,8 @@ export function MarketPosition({ game }: { game: GameDetail }) {
             observedAt={source.observed_at}
             confidence={source.confidence}
           />
+        ) : hasRange ? (
+          <p className="mt-3 mb-0 text-xs text-zinc-600">Catalog estimate; source metadata is unavailable for this value.</p>
         ) : (
           <p className="mt-3 mb-0 text-xs text-zinc-600">No current ownership estimate is cached for this game.</p>
         )}

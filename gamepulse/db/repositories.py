@@ -32,6 +32,8 @@ class GameRecord:
     short_description: str | None
     tags: tuple[str, ...]
     genres: tuple[str, ...]
+    positive_reviews: int | None = None
+    negative_reviews: int | None = None
 
     @property
     def steam_store_url(self) -> str:
@@ -116,6 +118,8 @@ class GameRepository:
             short_description=model.short_description,
             tags=tags,
             genres=genres,
+            positive_reviews=model.positive_reviews,
+            negative_reviews=model.negative_reviews,
         )
 
     def get_game(self, app_id: int) -> GameRecord | None:

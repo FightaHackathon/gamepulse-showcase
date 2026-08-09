@@ -28,6 +28,57 @@ npm install
 Python runtime. This keeps the serverless function independent from the heavier
 Streamlit/scientific prototype stack.
 
+Start the unified local Fusion Web runtime with:
+
+```powershell
+npm run dev
+```
+
+This starts FastAPI on the local-only port `8000` and Next.js on the preferred
+browser URL `http://127.0.0.1:3000`. If port `3000` is occupied, the launcher
+selects the next available port in its bounded local range and prints the
+actual browser URL. During development, Next.js forwards same-origin `/api/*`
+requests to FastAPI; Vercel production routing is unchanged. Check the wiring
+and selected port without starting either server with:
+
+```powershell
+python scripts\dev.py --check
+Invoke-RestMethod http://127.0.0.1:<printed-port>/api/health
+```
+
+### Player analysis
+
+The Player workflow accepts either a public Steam profile URL or an optional
+Steam Web API key. The key is used only for the current request and is never
+stored in Postgres, browser persistent storage, logs or committed files.
+
+Without a key, GamePulse reads the public Steam profile page first and uses the
+public games tab only when recent-game cards are not available. With a key, it
+uses Steam's owned-games API. In both modes, recommendations exclude owned
+games, use the catalog and cached signals available through `DATABASE_URL`,
+and rank results by transparent personal-fit, review, activity and momentum
+signals. The Player page can load additional bounded pages of recommendations
+when more results are requested.
+
+For local database-backed analysis, create an ignored `.env` file in the
+repository root and add your own connection string without committing it:
+
+```dotenv
+DATABASE_URL=postgresql://user:password@host/database?sslmode=require
+```
+
+The development launcher loads this value for FastAPI. Verify the local proxy
+before testing Player analysis:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:<printed-port>/api/health
+```
+
+If Player analysis reports a request failure, check the FastAPI terminal/log
+first. A slow or unavailable Steam profile source is reported as a recoverable
+provider error; the local `/api/player/analyze` request should not be allowed
+to hang behind the Next.js proxy.
+
 ## Run the legacy Streamlit prototype
 
 The dataset-inclusive repository stores the large raw archives, processed CSVs

@@ -33,7 +33,7 @@ function MetricCell({
   source?: MetricValue;
 }) {
   return (
-    <div className="min-w-0 px-5 py-5 first:pl-0 last:pr-0 max-[720px]:px-0 max-[720px]:py-4">
+    <div title={label === "Peak CCU" ? "Peak CCU means peak concurrent users: the highest number of players online at the same time." : undefined} className="min-w-0 px-5 py-5 first:pl-0 last:pr-0 max-[720px]:px-0 max-[720px]:py-4">
       <div className="text-[0.67rem] font-semibold uppercase tracking-[0.12em] text-zinc-600">{label}</div>
       <div className="mt-2 text-[1.45rem] font-semibold tracking-[-0.035em] text-white">{value}</div>
       {source ? (
@@ -48,17 +48,19 @@ function MetricCell({
   );
 }
 
-export function KeyMetrics({ game }: { game: GameDetail }) {
+export function KeyMetrics({ game, includeStreaming = true }: { game: GameDetail; includeStreaming?: boolean }) {
   const currentPlayers = metric(game, "current_players");
+  const peakPlayers = metric(game, "peak_ccu");
+  const playerEvidence = currentPlayers ?? peakPlayers;
   const averageViewers = metric(game, "average_viewers_30d");
 
   return (
     <Card className="mt-9 px-5 py-1">
-      <div className="grid grid-cols-4 divide-x divide-white/[0.07] max-[920px]:grid-cols-2 max-[920px]:[&>*:nth-child(odd)]:border-l-0 max-[720px]:grid-cols-1 max-[720px]:divide-x-0 max-[720px]:divide-y">
+      <div className={`grid ${includeStreaming ? "grid-cols-4" : "grid-cols-3"} divide-x divide-white/[0.07] max-[920px]:grid-cols-2 max-[920px]:[&>*:nth-child(odd)]:border-l-0 max-[720px]:grid-cols-1 max-[720px]:divide-x-0 max-[720px]:divide-y`}>
         <MetricCell label="Price" value={price(game.price_usd)} />
         <MetricCell label="Reviews" value={reviewPercent(game.review_score)} />
-        <MetricCell label="Players now" value={compact(currentPlayers?.value_numeric ?? null)} source={currentPlayers} />
-        <MetricCell label="30d avg viewers" value={compact(averageViewers?.value_numeric ?? null)} source={averageViewers} />
+        <MetricCell label={currentPlayers ? "Players now" : "Peak CCU"} value={compact(playerEvidence?.value_numeric ?? null)} source={playerEvidence} />
+        {includeStreaming ? <MetricCell label="30d avg viewers" value={compact(averageViewers?.value_numeric ?? null)} source={averageViewers} /> : null}
       </div>
     </Card>
   );

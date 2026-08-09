@@ -1,8 +1,8 @@
 import { SourceMeta } from "@/components/source-meta";
-import { TimeSeriesChart } from "@/components/charts/time-series-chart";
+import { MetricEvidence } from "@/components/game-detail/metric-evidence";
 import type { MetricValue } from "@/lib/api/types";
 
-export function StreamingTrend({ points }: { points: MetricValue[] }) {
+export function StreamingTrend({ points, fallbackPoint }: { points: MetricValue[]; fallbackPoint?: MetricValue }) {
   const latest = [...points].sort((a, b) => Date.parse(b.observed_at) - Date.parse(a.observed_at))[0];
 
   return (
@@ -16,7 +16,7 @@ export function StreamingTrend({ points }: { points: MetricValue[] }) {
           <SourceMeta sourceName={latest.source_name} observedAt={latest.observed_at} confidence={latest.confidence} />
         ) : null}
       </div>
-      <TimeSeriesChart label="Streaming audience history" points={points} />
+      <MetricEvidence chartLabel="Streaming audience history" points={points} fallbackPoint={fallbackPoint} metricLabel="30d average viewers" />
     </section>
   );
 }

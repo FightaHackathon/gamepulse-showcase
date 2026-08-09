@@ -16,6 +16,11 @@ from gamepulse.web_api.dependencies import get_db_session
 
 router = APIRouter(prefix="/api/player", tags=["player"])
 
+# Keep legacy discovery useful for the UI while bounded pages can reach 400 results.
+DISCOVERY_RESULT_LIMIT = 80
+PLAYER_PAGE_SIZE = 100
+PLAYER_MAX_PAGE = 3
+
 
 class PlayerAnalyzeRequest(BaseModel):
     """Accept both the original profile_url contract and Fusion's explicit name."""
@@ -23,6 +28,7 @@ class PlayerAnalyzeRequest(BaseModel):
     steam_profile_url: str | None = Field(default=None, min_length=1)
     profile_url: str | None = Field(default=None, min_length=1)
     steam_web_api_key: str | None = None
+    page: int | None = Field(default=None, ge=0, le=PLAYER_MAX_PAGE)
 
     @model_validator(mode="after")
     def require_profile(self):
@@ -71,7 +77,12 @@ def _serialize_result(item) -> dict:
         "review_score": item.review_score,
         "header_image_url": item.header_image_url,
         "current_players": item.current_players,
+        "peak_ccu": item.peak_ccu,
+        "release_date": item.release_date,
         "trend_change": item.trend_change,
+        "owned": item.owned,
+        "tags": list(item.tags),
+        "genres": list(item.genres),
         "breakdown": {
             "personal_fit": round(float(breakdown.personal_fit), 4),
             "review_quality": None if breakdown.review_quality is None else round(float(breakdown.review_quality), 4),
@@ -113,7 +124,23 @@ def analyze_player(
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     service = _service_for(session) if session is not None else _service_for_without_database()
-    owned, discovery = service.recommend(library, limit_owned=10, limit_discovery=10)
+    if request.page is None:
+        owned, discovery = service.recommend(library, limit_owned=10, limit_discovery=DISCOVERY_RESULT_LIMIT)
+        paging = None
+    else:
+        owned, discovery, has_more = service.recommend(
+            library,
+            limit_owned=10,
+            limit_discovery=PLAYER_PAGE_SIZE,
+            catalog_offset=request.page * PLAYER_PAGE_SIZE,
+            return_page_info=True,
+        )
+        paging = {
+            "page": request.page,
+            "page_size": PLAYER_PAGE_SIZE,
+            "has_more": bool(has_more and request.page < PLAYER_MAX_PAGE),
+            "next_page": request.page + 1 if has_more and request.page < PLAYER_MAX_PAGE else None,
+        }
     recommendations = [_serialize_result(item) for item in [*owned, *discovery]]
     body = {
         "recommendations": recommendations,
@@ -125,6 +152,8 @@ def analyze_player(
     if request.profile_url is not None:
         body["owned_recommendations"] = [_serialize_result(item) for item in owned]
         body["discovery_recommendations"] = [_serialize_result(item) for item in discovery]
+    if paging is not None:
+        body["paging"] = paging
     return body
 
 
